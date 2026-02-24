@@ -1,7 +1,5 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
@@ -369,10 +367,10 @@ def generar_sugerido_compra(df_inventario, df_ventas):
 #  INTERFAZ DE USUARIO
 # ══════════════════════════════════════════════════════════════════
 
-# Estilos CSS
+# Estilos CSS simplificados
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Syne:wght@700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
 
 html, body, [class*="css"] {
     font-family: 'Space Grotesk', sans-serif;
@@ -592,42 +590,25 @@ def dashboard_proveedor():
     tab1, tab2, tab3, tab4 = st.tabs(["📊 Análisis", "🏪 Top Vendedores", "📦 Inventario", "🛒 Sugerido Compra"])
     
     with tab1:
-        # Gráficos de análisis
+        # Gráficos básicos usando Streamlit nativo
         col_left, col_right = st.columns(2)
         
         with col_left:
-            # Ventas por marca
+            st.markdown("### 🏷️ Ventas por Marca")
             if not metricas['top_productos'].empty:
-                fig_marca = go.Figure(data=[
-                    go.Pie(labels=metricas['top_productos'].index, values=metricas['top_productos'].values, hole=0.4)
-                ])
-                fig_marca.update_layout(
-                    title="🏷️ Ventas por Marca",
-                    template="plotly_white",
-                    height=400
-                )
-                st.plotly_chart(fig_marca, use_container_width=True)
+                # Usar gráfico de barras básico de Streamlit
+                st.bar_chart(metricas['top_productos'])
             else:
                 st.info("📝 Sin datos de productos para mostrar")
         
         with col_right:
-            # Tendencia mensual
+            st.markdown("### 📈 Tendencia de Ventas")
             if not df_v_filtrado.empty:
                 try:
-                    tendencia = df_v_filtrado.groupby(df_v_filtrado['Fecha'].dt.to_period('M'))['Total'].sum().reset_index()
-                    tendencia['Fecha_str'] = tendencia['Fecha'].dt.strftime('%B %Y')
-                    
-                    fig_trend = go.Figure(data=[
-                        go.Scatter(x=tendencia['Fecha_str'], y=tendencia['Total'], mode='lines+markers', line_color='#4F46E5')
-                    ])
-                    fig_trend.update_layout(
-                        title="📈 Tendencia de Ventas",
-                        template="plotly_white",
-                        height=400,
-                        xaxis_title="Mes",
-                        yaxis_title="Ventas ($)"
-                    )
-                    st.plotly_chart(fig_trend, use_container_width=True)
+                    # Crear tendencia mensual
+                    tendencia = df_v_filtrado.groupby(df_v_filtrado['Fecha'].dt.to_period('M'))['Total'].sum()
+                    tendencia.index = tendencia.index.astype(str)
+                    st.line_chart(tendencia)
                 except Exception:
                     st.info("📝 Sin datos suficientes para mostrar tendencia")
             else:
