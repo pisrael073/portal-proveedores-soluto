@@ -1,280 +1,91 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
+import plotly.express as px
+import plotly.io as pio
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
-from datetime import datetime
+import io
+import zipfile
 import calendar
 import re
 import unicodedata
+import requests
+from datetime import datetime
 
 # ══════════════════════════════════════════════════════════════════
-#  CONFIGURACIÓN
+#  CONFIG TELEGRAM
 # ══════════════════════════════════════════════════════════════════
 
-st.set_page_config(
-    page_title="Portal Proveedores - SOLUTO",
-    layout="wide",
-    page_icon="🏢",
-    initial_sidebar_state="expanded"
-)
+# 🔧 CONFIGURACIÓN TELEGRAM - DATOS REALES
+TELEGRAM_CONFIG = {
+    'BOT_TOKEN': '8249353159:AAFvpNkEUdTcuIu_kpMcQbOtqyB0WbZkGTc',
+    'CHAT_IDS': {
+        'gerencia': '7900265168',        # Tu chat personal
+        'administracion': '7900265168',  # Tu chat personal
+        'vendedores': '-5180849774'      # Grupo "Reportes Automaticos" 
+    }
+}
 
 # ══════════════════════════════════════════════════════════════════
-#  FUNCIONES AUXILIARES (COPIADAS EXACTAS DE TU DASHBOARD)
+#  FUNCIONES DE PROVEEDORES (NUEVAS)
 # ══════════════════════════════════════════════════════════════════
 
-def norm_txt(v):
-    """Quita tildes, mayúsculas, colapsa espacios."""
-    s = str(v).strip().upper()
-    s = ''.join(c for c in unicodedata.normalize('NFD', s)
-                if unicodedata.category(c) != 'Mn')
-    return re.sub(r'\s+', ' ', s)
+def es_super_admin(user_codigo, user_nombre):
+    """Verifica si el usuario es Israel (super administrador)"""
+    # Criterios para Super Admin
+    codigo_israel = str(user_codigo) == '1804140794'
+    nombre_israel = 'ISRAEL' in str(user_nombre).upper()
+    nombre_completo = 'PAREDES ALTAMIRANO ISRAEL' in str(user_nombre).upper()
+    
+    return codigo_israel or nombre_israel or nombre_completo
 
-def limpiar_columnas(df):
-    """Elimina BOM, espacios y caracteres invisibles de los nombres de columna."""
-    df.columns = [
-        str(c).strip()
-          .replace('\ufeff', '')
-          .replace('\xa0', '')
-          .replace('\u200b', '')
-        for c in df.columns
+
+def tiene_permisos_admin(user_rol):
+    """Verifica si el usuario tiene permisos básicos de admin"""
+    return user_rol.lower() in ('admin', 'administrador', 'gerente', 'supervisor', 'jefe')
+
+
+def es_proveedor(user_rol):
+    """Verifica si el usuario es un proveedor"""
+    return user_rol.lower() in ('proveedor', 'marca', 'distribuidor', 'supplier')
+
+
+def filtrar_datos_proveedor(df_ventas, user_info):
+    """Filtra datos según el proveedor/marca del usuario"""
+    user_rol = user_info.get('_rol', '').lower()
+    
+    # Si no es proveedor, devolver datos completos
+    if not es_proveedor(user_rol):
+        return df_ventas
+    
+    # Intentar extraer filtro de diferentes campos del usuario
+    filtros_posibles = [
+        user_info.get('_zona', ''),       # A veces la zona contiene la marca
+        user_info.get('_nombre_orig', ''), # Nombre puede contener marca
     ]
-    return df
-
-# ══════════════════════════════════════════════════════════════════
-#  CONEXIÓN GOOGLE SHEETS (EXACTA DE TU DASHBOARD)
-# ══════════════════════════════════════════════════════════════════
-
-@st.cache_resource(ttl=300)
-def get_gc():
-    scope = [
-        "https://spreadsheets.google.com/feeds",
-        "https://www.googleapis.com/auth/drive"
-    ]
     
-    try:
-        # Usar secrets de Streamlit Cloud
-        creds_dict = dict(st.secrets["google"])
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-    except Exception:
-        try:
-            # Fallback local
-            creds = ServiceAccountCredentials.from_json_keyfile_name('credenciales.json', scope)
-        except Exception as e:
-            st.error("❌ Error de conexión con Google Sheets")
-            st.info("💡 Contacta al administrador del sistema")
-            st.stop()
+    # Aplicar filtros
+    df_filtrado = df_ventas.copy()
+    for filtro in filtros_posibles:
+        if filtro and filtro.strip() and filtro.upper() not in ('NAN', 'NONE', ''):
+            # Intentar filtrar por proveedor
+            mask_prov = df_filtrado['Proveedor'].str.contains(filtro, case=False, na=False)
+            if mask_prov.sum() > 0:
+                df_filtrado = df_filtrado[mask_prov]
+                break
+            
+            # Si no funciona proveedor, intentar por marca
+            mask_marca = df_filtrado['Marca'].str.contains(filtro, case=False, na=False)
+            if mask_marca.sum() > 0:
+                df_filtrado = df_filtrado[mask_marca]
+                break
     
-    return gspread.authorize(creds)
+    return df_filtrado
 
-# ══════════════════════════════════════════════════════════════════
-#  CARGA DE DATOS (ADAPTADA PARA PROVEEDORES)
-# ══════════════════════════════════════════════════════════════════
 
-@st.cache_data(ttl=300)
-def cargar_usuarios_proveedores():
-    """Carga usuarios con enfoque en proveedores"""
-    gc = get_gc()
-    sh = gc.open("soluto")
-    df = pd.DataFrame()
-
-    for hoja in ["Usuario_Roles", "Usuarios", "USUARIOS"]:
-        try:
-            ws = sh.worksheet(hoja)
-            df = pd.DataFrame(ws.get_all_records())
-            df = limpiar_columnas(df)
-            break
-        except Exception:
-            continue
-
-    if df.empty:
-        return df
-
-    # Buscar columnas (mismo método que tu dashboard)
-    col_nombre = next((c for c in df.columns if 'nombre' in c.lower()), None)
-    col_pin    = next((c for c in df.columns if 'pin' in c.lower() or 'password' in c.lower()), None)
-    col_rol    = next((c for c in df.columns if 'rol' in c.lower() or 'tipo' in c.lower()), None)
-    col_proveedor = next((c for c in df.columns if 'proveedor' in c.lower()), None)
-    col_marca = next((c for c in df.columns if 'marca' in c.lower()), None)
-
-    # Normalizar columnas
-    df['_nombre_orig'] = df[col_nombre].astype(str).str.strip() if col_nombre else ''
-    df['_nombre_norm'] = df['_nombre_orig'].apply(norm_txt)
-    df['_pin']         = df[col_pin].astype(str).str.strip() if col_pin else ''
-    df['_rol']         = df[col_rol].astype(str).str.strip() if col_rol else 'Proveedor'
-    df['_proveedor']   = df[col_proveedor].astype(str).str.strip() if col_proveedor else ''
-    df['_marca']       = df[col_marca].astype(str).str.strip() if col_marca else ''
-    
-    return df
-
-@st.cache_data(ttl=300)
-def cargar_ventas_inventario():
-    """Carga ventas e inventario - misma estructura que tu función"""
-    gc = get_gc()
-    sh = gc.open("soluto")
-
-    # ── VENTAS (MISMO CÓDIGO QUE TU DASHBOARD) ─────────────────────
-    ws_v   = sh.worksheet("VENTAS")
-    df_raw = pd.DataFrame(ws_v.get_all_records())
-    df_raw = limpiar_columnas(df_raw)
-
-    def find_col(df, keyword):
-        return next((c for c in df.columns if keyword in norm_txt(c)), None)
-
-    col_fecha = find_col(df_raw, 'FECHA')
-    col_total = find_col(df_raw, 'TOTAL')
-    col_vend  = find_col(df_raw, 'VENDEDOR')
-    col_cli   = find_col(df_raw, 'CLIENTE')
-    col_marca = find_col(df_raw, 'MARCA')
-    col_prov  = find_col(df_raw, 'PROVEEDOR')
-    col_costo = find_col(df_raw, 'COSTO')
-
-    if col_fecha is None or col_total is None:
-        st.error("❌ Error: No se encontraron columnas FECHA o TOTAL en VENTAS")
-        return pd.DataFrame(), pd.DataFrame()
-
-    # Parsear fecha y total (mismo código que tu dashboard)
-    fecha_series = pd.to_datetime(df_raw[col_fecha], errors='coerce', dayfirst=True)
-    total_series = pd.to_numeric(
-        df_raw[col_total].astype(str).str.replace(r'[$,\s]', '', regex=True),
-        errors='coerce'
-    ).fillna(0)
-
-    mask_ok = fecha_series.notna()
-    df_v = df_raw[mask_ok].copy()
-    df_v['Fecha']     = fecha_series[mask_ok].values
-    df_v['Total']     = total_series[mask_ok].values
-    df_v['Vendedor']  = df_v[col_vend].astype(str) if col_vend else ''
-    df_v['Cliente']   = df_v[col_cli].astype(str) if col_cli else ''
-    df_v['Marca']     = df_v[col_marca].astype(str) if col_marca else ''
-    df_v['Proveedor'] = df_v[col_prov].astype(str) if col_prov else ''
-    df_v['Costo']     = pd.to_numeric(df_v[col_costo], errors='coerce').fillna(0) if col_costo else 0
-
-    # ── INVENTARIO ──────────────────────────────────────────────
-    try:
-        ws_i = sh.worksheet("INVENTARIO")
-        df_inv_raw = pd.DataFrame(ws_i.get_all_records())
-        df_inv_raw = limpiar_columnas(df_inv_raw)
-        
-        # Buscar columnas en inventario
-        col_inv_prov = find_col(df_inv_raw, 'PROVEEDOR')
-        col_inv_marca = find_col(df_inv_raw, 'MARCA')
-        col_inv_desc = find_col(df_inv_raw, 'DESCRIPCION')
-        col_inv_cant = find_col(df_inv_raw, 'CANT')
-        col_inv_costo = find_col(df_inv_raw, 'COSTO')
-        col_inv_pvp = find_col(df_inv_raw, 'PVP')
-        
-        df_inv = df_inv_raw.copy()
-        df_inv['Proveedor'] = df_inv[col_inv_prov].astype(str) if col_inv_prov else ''
-        df_inv['Marca'] = df_inv[col_inv_marca].astype(str) if col_inv_marca else ''
-        df_inv['Descripcion'] = df_inv[col_inv_desc].astype(str) if col_inv_desc else ''
-        df_inv['Cantidad'] = pd.to_numeric(df_inv[col_inv_cant], errors='coerce').fillna(0) if col_inv_cant else 0
-        df_inv['Costo'] = pd.to_numeric(df_inv[col_inv_costo], errors='coerce').fillna(0) if col_inv_costo else 0
-        df_inv['PVP'] = pd.to_numeric(df_inv[col_inv_pvp], errors='coerce').fillna(0) if col_inv_pvp else 0
-        
-    except Exception:
-        df_inv = pd.DataFrame()
-
-    return df_v, df_inv
-
-# ══════════════════════════════════════════════════════════════════
-#  SISTEMA DE AUTENTICACIÓN
-# ══════════════════════════════════════════════════════════════════
-
-def es_super_admin_portal(usuario, password):
-    """Verifica si es Israel (super admin)"""
-    return usuario.upper() == "ISRAEL" and password == "2024"
-
-def es_admin_portal(usuario, password):
-    """Verifica si es admin general"""
-    return usuario.upper() == "ADMIN" and password == "admin2024"
-
-def autenticar_usuario(usuario, password, df_usuarios):
-    """Autentica usuarios del portal"""
-    
-    # Super Admin Israel
-    if es_super_admin_portal(usuario, password):
-        return True, {
-            "tipo": "super_admin",
-            "usuario": "ISRAEL PAREDES",
-            "nombre": "Israel",
-            "proveedor": "",
-            "marca": "",
-            "acceso": "TOTAL"
-        }
-    
-    # Admin general
-    if es_admin_portal(usuario, password):
-        return True, {
-            "tipo": "admin",
-            "usuario": "ADMINISTRADOR",
-            "nombre": "Admin",
-            "proveedor": "",
-            "marca": "",
-            "acceso": "GENERAL"
-        }
-    
-    # Buscar en proveedores específicos
-    for _, user in df_usuarios.iterrows():
-        user_nombre = str(user.get('_nombre_orig', '')).upper()
-        user_pin = str(user.get('_pin', ''))
-        user_rol = str(user.get('_rol', '')).upper()
-        
-        # Verificar si es un proveedor
-        if ('PROVEEDOR' in user_rol or 'MARCA' in user_rol) and user_nombre == usuario.upper() and user_pin == password:
-            return True, {
-                "tipo": "proveedor",
-                "usuario": user.get('_nombre_orig', usuario),
-                "nombre": usuario,
-                "proveedor": user.get('_proveedor', ''),
-                "marca": user.get('_marca', ''),
-                "acceso": "FILTRADO"
-            }
-    
-    return False, None
-
-# ══════════════════════════════════════════════════════════════════
-#  FILTROS DE DATOS SEGÚN USUARIO
-# ══════════════════════════════════════════════════════════════════
-
-def filtrar_datos_por_usuario(df_ventas, df_inventario, user_info):
-    """Filtra datos según el tipo de usuario"""
-    
-    if user_info['tipo'] in ['super_admin', 'admin']:
-        # Israel y Admin ven todo
-        return df_ventas, df_inventario
-    
-    elif user_info['tipo'] == 'proveedor':
-        # Filtrar por proveedor o marca específica
-        proveedor = user_info.get('proveedor', '')
-        marca = user_info.get('marca', '')
-        
-        # Filtro en ventas
-        df_v_filtrado = df_ventas.copy()
-        if marca and marca.strip():
-            # Filtrar por marca específica
-            df_v_filtrado = df_v_filtrado[df_v_filtrado['Marca'].str.contains(marca, case=False, na=False)]
-        elif proveedor and proveedor.strip():
-            # Filtrar por proveedor
-            df_v_filtrado = df_v_filtrado[df_v_filtrado['Proveedor'].str.contains(proveedor, case=False, na=False)]
-        
-        # Filtro en inventario
-        df_i_filtrado = df_inventario.copy()
-        if marca and marca.strip():
-            df_i_filtrado = df_i_filtrado[df_i_filtrado['Marca'].str.contains(marca, case=False, na=False)]
-        elif proveedor and proveedor.strip():
-            df_i_filtrado = df_i_filtrado[df_i_filtrado['Proveedor'].str.contains(proveedor, case=False, na=False)]
-        
-        return df_v_filtrado, df_i_filtrado
-    
-    return pd.DataFrame(), pd.DataFrame()
-
-# ══════════════════════════════════════════════════════════════════
-#  ANÁLISIS Y MÉTRICAS
-# ══════════════════════════════════════════════════════════════════
-
-def calcular_metricas_proveedor(df_ventas, mes_seleccionado):
-    """Calcula métricas del proveedor para el mes seleccionado"""
-    
+def calcular_metricas_proveedor(df_ventas, mes_seleccionado, user_info):
+    """Calcula métricas específicas para proveedores"""
     # Filtrar por mes
     df_mes = df_ventas[df_ventas['Fecha'].dt.strftime('%B %Y') == mes_seleccionado]
     
@@ -286,20 +97,18 @@ def calcular_metricas_proveedor(df_ventas, mes_seleccionado):
             'vendedores_activos': 0,
             'top_productos': pd.Series(dtype=float),
             'top_vendedores': pd.Series(dtype=float),
-            'crecimiento': 0
+            'crecimiento': 0,
+            'es_proveedor': es_proveedor(user_info.get('_rol', ''))
         }
     
-    # Métricas básicas
     total_ventas = df_mes['Total'].sum()
     total_facturas = len(df_mes)
     clientes_unicos = df_mes['Cliente'].nunique()
     vendedores_activos = df_mes[df_mes['Total'] > 0]['Vendedor'].nunique()
-    
-    # Top productos y vendedores
     top_productos = df_mes.groupby('Marca')['Total'].sum().nlargest(5)
     top_vendedores = df_mes.groupby('Vendedor')['Total'].sum().nlargest(5)
     
-    # Calcular crecimiento (mes anterior)
+    # Calcular crecimiento vs mes anterior
     try:
         fecha_actual = datetime.now()
         if fecha_actual.month == 1:
@@ -324,390 +133,696 @@ def calcular_metricas_proveedor(df_ventas, mes_seleccionado):
         'vendedores_activos': vendedores_activos,
         'top_productos': top_productos,
         'top_vendedores': top_vendedores,
-        'crecimiento': round(crecimiento, 1)
+        'crecimiento': round(crecimiento, 1),
+        'es_proveedor': es_proveedor(user_info.get('_rol', ''))
     }
 
-def generar_sugerido_compra(df_inventario, df_ventas):
-    """Genera sugerido de compra basado en rotación"""
+
+# ══════════════════════════════════════════════════════════════════
+#  RESTO DEL CÓDIGO IGUAL QUE TU DASHBOARD PRINCIPAL
+# ══════════════════════════════════════════════════════════════════
+
+def enviar_telegram(mensaje, chat_id=None, imagen=None):
+    """Envía mensaje y/o imagen a Telegram"""
+    if not chat_id:
+        chat_id = TELEGRAM_CONFIG['CHAT_IDS']['gerencia']
     
-    if df_inventario.empty or df_ventas.empty:
-        return pd.DataFrame()
+    bot_token = TELEGRAM_CONFIG['BOT_TOKEN']
     
     try:
-        # Ventas últimos 90 días
-        fecha_limite = datetime.now() - pd.Timedelta(days=90)
-        df_ventas_recientes = df_ventas[df_ventas['Fecha'] >= fecha_limite]
+        # Enviar mensaje de texto
+        if mensaje:
+            url_texto = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+            payload = {
+                'chat_id': chat_id,
+                'text': mensaje,
+                'parse_mode': 'HTML'
+            }
+            requests.post(url_texto, data=payload)
         
-        # Agrupar por producto (usar Marca como identificador)
-        rotacion = df_ventas_recientes.groupby('Marca').agg({
-            'Total': 'sum',
-            'Fecha': 'count'
-        }).rename(columns={'Fecha': 'Transacciones'}).reset_index()
-        
-        # Merge con inventario
-        df_sugerido = df_inventario.merge(rotacion, left_on='Marca', right_on='Marca', how='left').fillna(0)
-        
-        # Calcular sugeridos
-        df_sugerido['Rotacion_Mensual'] = df_sugerido['Total'] / 3  # Promedio mensual
-        df_sugerido['Stock_Sugerido'] = df_sugerido['Rotacion_Mensual'] * 1.5  # 1.5 meses de stock
-        df_sugerido['Diferencia'] = df_sugerido['Stock_Sugerido'] - df_sugerido['Cantidad']
-        df_sugerido['Sugerido_Compra'] = df_sugerido['Diferencia'].apply(lambda x: max(0, x))
-        df_sugerido['Valor_Compra'] = df_sugerido['Sugerido_Compra'] * df_sugerido['Costo']
-        
-        # Filtrar solo productos que necesitan reposición
-        df_sugerido = df_sugerido[df_sugerido['Sugerido_Compra'] > 0]
-        
-        return df_sugerido.sort_values('Valor_Compra', ascending=False).head(20)
-    
+        # Enviar imagen si existe
+        if imagen:
+            try:
+                url_foto = f"https://api.telegram.org/bot{bot_token}/sendPhoto"
+                files = {'photo': imagen}
+                data = {'chat_id': chat_id}
+                response = requests.post(url_foto, files=files, data=data)
+                
+                if response.status_code == 200:
+                    return True
+                else:
+                    return True
+            except:
+                return True
+            
+        return True
     except Exception as e:
-        st.error(f"Error calculando sugerido: {e}")
-        return pd.DataFrame()
+        return False
 
-# ══════════════════════════════════════════════════════════════════
-#  INTERFAZ DE USUARIO
-# ══════════════════════════════════════════════════════════════════
+st.set_page_config(
+    page_title="Portal Proveedores - SOLUTO",
+    layout="wide",
+    page_icon="🏢",
+    initial_sidebar_state="expanded"
+)
 
-# Estilos CSS simplificados
 st.markdown("""
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&display=swap');
-
-html, body, [class*="css"] {
-    font-family: 'Space Grotesk', sans-serif;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-    color: #2D3748;
-}
-
-.main {
-    background: rgba(255, 255, 255, 0.95);
-    border-radius: 20px;
-    padding: 2rem;
-    margin: 1rem;
-    backdrop-filter: blur(10px);
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-}
-
-.header-portal {
-    background: linear-gradient(135deg, #4F46E5, #7C3AED);
-    color: white;
-    padding: 2rem;
-    border-radius: 15px;
-    margin-bottom: 2rem;
-    text-align: center;
-    box-shadow: 0 10px 25px rgba(79, 70, 229, 0.3);
-}
-
-.login-container {
-    max-width: 400px;
-    margin: 0 auto;
-    background: rgba(255, 255, 255, 0.9);
-    padding: 3rem;
-    border-radius: 20px;
-    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
-    text-align: center;
-}
-
-.stButton > button {
-    background: linear-gradient(135deg, #4F46E5, #7C3AED) !important;
-    color: white !important;
-    border: none !important;
-    border-radius: 10px !important;
-    padding: 0.75rem 2rem !important;
-    font-weight: 600 !important;
-    width: 100% !important;
-}
-
-.top-vendor-card {
-    background: linear-gradient(135deg, #10B981, #059669);
-    color: white;
-    padding: 1rem;
-    border-radius: 10px;
-    margin: 0.5rem 0;
-}
-
-.alert-card {
-    background: linear-gradient(135deg, #F59E0B, #D97706);
-    color: white;
-    padding: 1rem;
-    border-radius: 10px;
-    margin: 0.5rem 0;
-}
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Syne:wght@700;800&display=swap');
+html,body,[class*="css"]{font-family:'Space Grotesk',sans-serif;background:#0A0F1E;color:#E2E8F0;}
+header,footer,#MainMenu{visibility:hidden;}
+.block-container{padding:1rem 1.5rem!important;max-width:100%!important;}
+div[data-testid="stSidebar"]{background:linear-gradient(180deg,#0A0F1E,#111827);border-right:1px solid #1E3A8A33;}
+.login-logo{font-family:'Syne',sans-serif;font-size:2rem;font-weight:800;color:#3B82F6;letter-spacing:-1px;margin-bottom:4px;}
+.login-sub{font-size:0.78rem;color:#64748B;text-transform:uppercase;letter-spacing:2px;margin-bottom:28px;}
+.login-label{font-size:0.72rem;color:#94A3B8;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px;font-weight:600;}
+.error-box{background:#450A0A;border:1px solid #7F1D1D;border-radius:8px;padding:10px 14px;font-size:0.82rem;color:#FCA5A5;margin-top:12px;}
+.top-bar{background:linear-gradient(135deg,#0F172A,#1E2940);border:1px solid #1E3A8A44;border-radius:14px;padding:14px 22px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;}
+.top-bar-title{font-family:'Syne',sans-serif;font-size:1.3rem;font-weight:800;color:#F8FAFC;}
+.top-bar-user{font-size:0.78rem;color:#60A5FA;font-weight:600;text-align:right;}
+.top-bar-badge{background:#1E3A8A;border-radius:20px;padding:4px 14px;font-size:0.7rem;color:#BFDBFE;font-weight:700;text-transform:uppercase;display:inline-block;margin-top:4px;}
+.kpi-card{background:linear-gradient(145deg,#111827,#1A2540);border:1px solid #1E3A8A33;border-radius:14px;padding:18px 20px;text-align:center;position:relative;overflow:hidden;margin-bottom:8px;}
+.kpi-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:var(--accent,#3B82F6);border-radius:14px 14px 0 0;}
+.kpi-val{font-family:'Syne',sans-serif;font-size:1.8rem;font-weight:800;color:var(--accent,#3B82F6);line-height:1;margin-bottom:4px;}
+.kpi-lbl{font-size:0.62rem;color:#64748B;text-transform:uppercase;letter-spacing:1.5px;font-weight:600;}
+.kpi-sub{font-size:0.7rem;color:#94A3B8;margin-top:4px;}
+.section-title{font-family:'Syne',sans-serif;font-size:1rem;font-weight:700;color:#CBD5E1;margin:18px 0 10px;text-transform:uppercase;letter-spacing:1px;}
+.cruce-ok{background:#052e16;border:1px solid #16a34a;border-radius:8px;padding:8px 14px;font-size:0.8rem;color:#86efac;margin:6px 0;}
+.cruce-err{background:#450a0a;border:1px solid #dc2626;border-radius:8px;padding:8px 14px;font-size:0.8rem;color:#fca5a5;margin:6px 0;}
+.admin-badge{background:linear-gradient(135deg,#7C3AED,#A855F7);border-radius:6px;padding:2px 10px;font-size:0.65rem;font-weight:700;color:#F5F3FF;text-transform:uppercase;letter-spacing:1px;display:inline-block;margin-left:8px;}
+.proveedor-badge{background:linear-gradient(135deg,#F59E0B,#D97706);border-radius:6px;padding:2px 10px;font-size:0.65rem;font-weight:700;color:#FFF;text-transform:uppercase;letter-spacing:1px;display:inline-block;margin-left:8px;}
+.stButton>button,.stDownloadButton>button{background:linear-gradient(135deg,#1E40AF,#3B82F6)!important;color:white!important;border:none!important;border-radius:8px!important;font-weight:700!important;}
+.stTabs [data-baseweb="tab-list"]{background:#111827;border-radius:10px;padding:4px;gap:4px;}
+.stTabs [data-baseweb="tab"]{background:transparent!important;color:#64748B!important;border-radius:8px!important;font-weight:600!important;}
+.stTabs [aria-selected="true"]{background:#1E3A8A!important;color:#fff!important;}
 </style>
 """, unsafe_allow_html=True)
 
-def pantalla_login():
-    """Pantalla de login para proveedores"""
-    
-    st.markdown('<div class="login-container">', unsafe_allow_html=True)
-    
-    st.markdown("""
-    <div style='text-align: center; margin-bottom: 2rem;'>
-        <h1 style='color: #4F46E5; margin-bottom: 0.5rem;'>🏢 Portal Proveedores</h1>
-        <p style='color: #64748B; font-size: 1.1rem;'>SOLUTO - Acceso Exclusivo</p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Cargar usuarios para autenticación
-    df_usuarios = cargar_usuarios_proveedores()
-    
-    with st.form("login_form"):
-        usuario = st.text_input("👤 Usuario:", placeholder="Ingresa tu nombre de usuario")
-        password = st.text_input("🔐 Contraseña:", type="password", placeholder="Ingresa tu contraseña")
-        submit = st.form_submit_button("🚀 Ingresar", use_container_width=True)
-        
-        if submit:
-            if not usuario or not password:
-                st.error("❌ Por favor completa todos los campos")
-                return
-            
-            success, user_info = autenticar_usuario(usuario, password, df_usuarios)
-            
-            if success:
-                st.session_state.update({
-                    'authenticated': True,
-                    'user_info': user_info
-                })
-                st.success("✅ Login exitoso")
-                st.rerun()
-            else:
-                st.error("❌ Usuario o contraseña incorrectos")
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Información de acceso
-    with st.expander("ℹ️ Información de Acceso"):
-        st.markdown("""
-        **🔐 Tipos de Usuario:**
-        - **Super Admin:** `ISRAEL` / `2024`
-        - **Administrador:** `ADMIN` / `admin2024`
-        - **Proveedores:** Credenciales específicas (configuradas en Usuario_Roles)
-        
-        **📧 Contacto:**
-        Para obtener credenciales de proveedor, contacta al administrador del sistema.
-        """)
+# ══════════════════════════════════════════════════════════════════
+#  HELPERS
+# ══════════════════════════════════════════════════════════════════
+def norm_txt(v):
+    """Quita tildes, mayúsculas, colapsa espacios."""
+    s = str(v).strip().upper()
+    s = ''.join(c for c in unicodedata.normalize('NFD', s)
+                if unicodedata.category(c) != 'Mn')
+    return re.sub(r'\s+', ' ', s)
 
-def dashboard_proveedor():
-    """Dashboard principal para proveedores"""
+
+def limpiar_columnas(df):
+    """Elimina BOM, espacios y caracteres invisibles de los nombres de columna."""
+    df.columns = [
+        str(c).strip()
+          .replace('\ufeff', '')
+          .replace('\xa0', '')
+          .replace('\u200b', '')
+        for c in df.columns
+    ]
+    return df
+
+
+def descomponer_vendedor(texto):
+    """
+    'PDV09 - YANEZ FLORES JENNIFER LISSETTE'  → ('PDV09', 'YANEZ FLORES JENNIFER LISSETTE')
+    """
+    texto = str(texto).strip()
+    m = re.match(r'(PDV\d+)', texto.upper())
+    codigo = m.group(1) if m else ''
+
+    if ' - ' in texto:
+        nombre = texto.split(' - ', 1)[1].strip()
+    elif codigo:
+        nombre = re.sub(r'^PDV\d+\S*\s*', '', texto, flags=re.IGNORECASE).strip()
+    else:
+        nombre = texto
+
+    return codigo.upper(), norm_txt(nombre)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  CONEXIÓN GOOGLE SHEETS (IGUAL QUE TU DASHBOARD)
+# ══════════════════════════════════════════════════════════════════
+@st.cache_resource(ttl=300)
+def get_gc():
+    scope = [
+        "https://spreadsheets.google.com/feeds",
+        "https://www.googleapis.com/auth/drive"
+    ]
     
-    user_info = st.session_state['user_info']
+    try:
+        # Usar secrets de Streamlit Cloud
+        creds_dict = dict(st.secrets["google"])
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+    except Exception:
+        try:
+            # Fallback local
+            creds = ServiceAccountCredentials.from_json_keyfile_name('credenciales.json', scope)
+        except Exception as e:
+            st.error("❌ Error de conexión con Google Sheets")
+            st.info("💡 Contacta al administrador del sistema")
+            st.stop()
     
-    # Header
-    st.markdown(f"""
-    <div class="header-portal">
-        <h1>🏢 Portal {user_info['tipo'].title().replace('_', ' ')}</h1>
-        <h2>Bienvenido, {user_info['usuario']}</h2>
-        <p style="opacity: 0.9;">
-            {f"Proveedor: {user_info['proveedor']}" if user_info['proveedor'] else "Acceso " + user_info['acceso']}
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Sidebar
-    with st.sidebar:
-        st.markdown(f"""
-        **👤 Sesión Activa:**
-        - Usuario: {user_info['usuario']}
-        - Tipo: {user_info['tipo'].title().replace('_', ' ')}
-        - Acceso: {user_info['acceso']}
-        """)
-        
-        if user_info.get('proveedor'):
-            st.markdown(f"- Proveedor: {user_info['proveedor']}")
-        if user_info.get('marca'):
-            st.markdown(f"- Marca: {user_info['marca']}")
-        
-        if st.button("🚪 Cerrar Sesión"):
-            for key in list(st.session_state.keys()):
-                del st.session_state[key]
+    return gspread.authorize(creds)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  CARGA USUARIOS
+# ══════════════════════════════════════════════════════════════════
+@st.cache_data(ttl=300)
+def cargar_usuarios():
+    gc = get_gc()
+    sh = gc.open("soluto")
+    df = pd.DataFrame()
+
+    for hoja in ["Usuario_Roles", "Usuarios", "USUARIOS"]:
+        try:
+            ws = sh.worksheet(hoja)
+            df = pd.DataFrame(ws.get_all_records())
+            df = limpiar_columnas(df)
+            break
+        except Exception:
+            continue
+
+    if df.empty:
+        return df
+
+    col_nombre = next((c for c in df.columns if 'nombre' in c.lower()), None)
+    col_pin    = next((c for c in df.columns if 'pin'    in c.lower()), None)
+    col_rol    = next((c for c in df.columns if 'rol'    in c.lower()), None)
+    col_zona   = next((c for c in df.columns if 'zona'   in c.lower()), None)
+    col_codigo = next((c for c in df.columns if 'codigo' in c.lower()), None)
+
+    df['_nombre_orig'] = df[col_nombre].astype(str).str.strip() if col_nombre else ''
+    df['_nombre_norm'] = df['_nombre_orig'].apply(norm_txt)
+    df['_pin']         = df[col_pin].astype(str).str.strip()    if col_pin    else ''
+    df['_rol']         = df[col_rol].astype(str).str.strip()    if col_rol    else 'Vendedor'
+    df['_zona']        = df[col_zona].astype(str).str.strip()   if col_zona   else ''
+    df['_codigo_pdv']  = (
+        df[col_codigo].astype(str).str.strip().str.upper()
+        if col_codigo else ''
+    )
+    df['_codigo_pdv'] = df['_codigo_pdv'].replace({'NAN': '', 'NONE': ''})
+    return df
+
+
+# ══════════════════════════════════════════════════════════════════
+#  CARGA VENTAS + PRESUPUESTO (IGUAL QUE TU DASHBOARD)
+# ══════════════════════════════════════════════════════════════════
+@st.cache_data(ttl=300)
+def cargar_ventas_presupuesto():
+    gc = get_gc()
+    sh = gc.open("soluto")
+
+    # ── VENTAS ────────────────────────────────────────────────────
+    ws_v   = sh.worksheet("VENTAS")
+    df_raw = pd.DataFrame(ws_v.get_all_records())
+    df_raw = limpiar_columnas(df_raw)
+
+    def find_col(df, keyword):
+        return next((c for c in df.columns if keyword in norm_txt(c)), None)
+
+    col_fecha = find_col(df_raw, 'FECHA')
+    col_total = find_col(df_raw, 'TOTAL')
+    col_vend  = find_col(df_raw, 'VENDEDOR')
+    col_cli   = find_col(df_raw, 'CLIENTE')
+    col_marca = find_col(df_raw, 'MARCA')
+    col_prov  = find_col(df_raw, 'PROVEEDOR')
+
+    st.session_state['_cols_ventas'] = list(df_raw.columns)
+
+    if col_fecha is None:
+        raise ValueError(f"❌ No se encontró columna FECHA en la hoja VENTAS.")
+    if col_total is None:
+        raise ValueError(f"❌ No se encontró columna TOTAL en la hoja VENTAS.")
+
+    fecha_series = pd.to_datetime(df_raw[col_fecha], errors='coerce', dayfirst=True)
+    total_series = pd.to_numeric(
+        df_raw[col_total].astype(str).str.replace(r'[$,\s]', '', regex=True),
+        errors='coerce'
+    ).fillna(0)
+
+    mask_ok = fecha_series.notna()
+    df_v = df_raw[mask_ok].copy()
+    df_v['Fecha']    = fecha_series[mask_ok].values
+    df_v['Total']    = total_series[mask_ok].values
+    df_v['Vendedor'] = df_v[col_vend].astype(str)  if col_vend  else ''
+    df_v['Cliente']  = df_v[col_cli].astype(str)   if col_cli   else ''
+    df_v['Marca']    = df_v[col_marca].astype(str) if col_marca else ''
+    df_v['Proveedor']= df_v[col_prov].astype(str)  if col_prov  else ''
+
+    descomp = df_v['Vendedor'].apply(descomponer_vendedor)
+    df_v['_codigo_pdv']  = descomp.apply(lambda x: x[0])
+    df_v['_nombre_vend'] = descomp.apply(lambda x: x[1])
+
+    # ── PRESUPUESTO ───────────────────────────────────────────────
+    ws_p = sh.worksheet("PRESUPUESTO")
+    df_p = pd.DataFrame(ws_p.get_all_records())
+    df_p = limpiar_columnas(df_p)
+
+    rename_map = {}
+    for c in df_p.columns:
+        cn = norm_txt(c)
+        if 'VENDEDOR' in cn:
+            rename_map[c] = 'V_Orig'
+        elif 'OBJETIVO' in cn or cn == 'DN':
+            rename_map[c] = 'M_DN'
+        elif 'PRESUPUESTO' in cn or 'META' in cn:
+            rename_map[c] = 'M_V'
+    df_p = df_p.rename(columns=rename_map)
+
+    for col in ['M_V', 'M_DN']:
+        if col not in df_p.columns:
+            df_p[col] = 0
+        df_p[col] = pd.to_numeric(
+            df_p[col].astype(str).str.replace(r'[$,\s]', '', regex=True),
+            errors='coerce'
+        ).fillna(0)
+
+    if 'V_Orig' not in df_p.columns:
+        df_p['V_Orig'] = ''
+
+    audit = {'monto_perdido': 0, 'filas_afectadas': 0}
+    return df_v, df_p, audit
+
+
+# ══════════════════════════════════════════════════════════════════
+#  LOGIN
+# ══════════════════════════════════════════════════════════════════
+def pantalla_login():
+    df_users = cargar_usuarios()
+    if df_users.empty:
+        st.error("❌ No se pudo cargar la hoja Usuario_Roles.")
+        return
+
+    nombres = sorted(df_users['_nombre_orig'].tolist())
+
+    _, col_c, _ = st.columns([1, 1.1, 1])
+    with col_c:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.markdown(
+            "<div class='login-logo'>🏢 Portal Proveedores</div>"
+            "<div class='login-sub'>SOLUTO · Acceso Exclusivo</div>",
+            unsafe_allow_html=True
+        )
+
+        st.markdown("<div class='login-label'>👤 Selecciona tu nombre</div>",
+                    unsafe_allow_html=True)
+        nombre_sel = st.selectbox("", ["— Selecciona —"] + nombres,
+                                  key="login_nombre", label_visibility="collapsed")
+
+        st.markdown("<div class='login-label' style='margin-top:16px;'>🔐 Ingresa tu PIN</div>",
+                    unsafe_allow_html=True)
+        pin_inp = st.text_input("", type="password", placeholder="• • • • •",
+                                key="login_pin", label_visibility="collapsed", max_chars=6)
+
+        st.markdown("<br>", unsafe_allow_html=True)
+
+        if st.button("→ INGRESAR", use_container_width=True, key="btn_login"):
+            if nombre_sel == "— Selecciona —":
+                st.markdown("<div class='error-box'>⚠️ Selecciona tu nombre.</div>",
+                            unsafe_allow_html=True)
+                return
+
+            fila = df_users[df_users['_nombre_orig'] == nombre_sel]
+            if fila.empty:
+                st.markdown("<div class='error-box'>❌ Usuario no encontrado.</div>",
+                            unsafe_allow_html=True)
+                return
+
+            u = fila.iloc[0]
+            try:
+                pin_correcto = str(int(float(u['_pin'])))
+            except Exception:
+                pin_correcto = str(u['_pin'])
+
+            if pin_inp.strip() != pin_correcto:
+                st.markdown("<div class='error-box'>🔒 PIN incorrecto.</div>",
+                            unsafe_allow_html=True)
+                return
+
+            st.session_state.update({
+                'logged_in':   True,
+                'user_nombre': nombre_sel,
+                'user_norm':   str(u['_nombre_norm']),
+                'user_rol':    str(u['_rol']),
+                'user_zona':   str(u['_zona']),
+                'user_codigo': str(u['_codigo_pdv']),
+                'user_row':    u.to_dict(),
+            })
             st.rerun()
-    
-    # Cargar datos
-    with st.spinner("Cargando datos..."):
-        df_ventas, df_inventario = cargar_ventas_inventario()
+
+        st.caption("🔒 Acceso restringido — Portal Proveedores SOLUTO")
         
-        if df_ventas.empty:
-            st.error("❌ No se pudieron cargar los datos de ventas")
-            return
+        # Info para proveedores
+        with st.expander("ℹ️ Información de Acceso"):
+            st.markdown("""
+            **🏢 Portal Exclusivo para Proveedores y Socios Comerciales**
+            
+            **📊 Funcionalidades:**
+            - Análisis de ventas de tus productos
+            - Rankings de vendedores por marca
+            - Métricas de crecimiento
+            - Análisis detallado por período
+            
+            **📞 Soporte:** Contacta al administrador del sistema
+            """)
+
+
+# ══════════════════════════════════════════════════════════════════
+#  KPI CARD
+# ══════════════════════════════════════════════════════════════════
+def kpi_card(col, valor, label, sub="", accent="#3B82F6", prefix="$", suffix=""):
+    val_fmt = (f"{prefix}{valor:,.0f}{suffix}"
+               if isinstance(valor, (int, float)) else str(valor))
+    col.markdown(
+        f"<div class='kpi-card' style='--accent:{accent};'>"
+        f"<div class='kpi-val'>{val_fmt}</div>"
+        f"<div class='kpi-lbl'>{label}</div>"
+        f"{'<div class=kpi-sub>' + sub + '</div>' if sub else ''}"
+        f"</div>",
+        unsafe_allow_html=True
+    )
+
+
+# ══════════════════════════════════════════════════════════════════
+#  DASHBOARD PROVEEDORES
+# ══════════════════════════════════════════════════════════════════
+def dashboard_proveedores(df_v_all, df_p, usuario_row):
+    user_nombre = st.session_state['user_nombre']
+    user_rol    = st.session_state['user_rol']
+    user_zona   = st.session_state['user_zona']
+    user_codigo = st.session_state['user_codigo']
     
-    # Filtrar datos según usuario
-    df_v_filtrado, df_i_filtrado = filtrar_datos_por_usuario(df_ventas, df_inventario, user_info)
+    # Sistema de permisos
+    is_super_admin = es_super_admin(user_codigo, user_nombre)
+    is_admin = tiene_permisos_admin(user_rol)
+    is_proveedor_user = es_proveedor(user_rol)
+
+    # ── Top bar ──────────────────────────────────────────────────
+    if is_super_admin:
+        admin_badge = "<span class='admin-badge'>SUPER ADMIN</span>"
+    elif is_admin:
+        admin_badge = "<span class='admin-badge'>Admin</span>"
+    elif is_proveedor_user:
+        admin_badge = "<span class='proveedor-badge'>Proveedor</span>"
+    else:
+        admin_badge = ""
+        
+    cod_lbl = (f"<span style='color:#475569;font-size:0.7rem;margin-left:8px;'>"
+               f"[{user_codigo}]</span>") if user_codigo else ""
+    st.markdown(
+        f"<div class='top-bar'>"
+        f"<div><span class='top-bar-title'>🏢 Portal Proveedores</span>{admin_badge}</div>"
+        f"<div><div class='top-bar-user'>👤 {user_nombre}{cod_lbl}</div>"
+        f"<div class='top-bar-badge'>{user_zona or 'SIN ZONA'}</div></div>"
+        f"</div>",
+        unsafe_allow_html=True
+    )
+
+    # ── Sidebar ───────────────────────────────────────────────────
+    with st.sidebar:
+        st.markdown(
+            f"<div style='color:#60A5FA;font-weight:700;padding:8px 0;'>"
+            f"👤 {user_nombre}</div>",
+            unsafe_allow_html=True
+        )
+        st.markdown(
+            f"<div style='color:#64748B;font-size:0.75rem;margin-bottom:12px;'>"
+            f"Rol: {user_rol} · Zona: {user_zona or '—'}</div>",
+            unsafe_allow_html=True
+        )
+        
+        if is_proveedor_user:
+            st.info("📊 Vista filtrada por tus productos")
+        elif is_super_admin or is_admin:
+            st.success("🔑 Acceso completo de administrador")
+        
+        if st.button("🚪 Cerrar Sesión", use_container_width=True):
+            for k in list(st.session_state.keys()):
+                del st.session_state[k]
+            st.rerun()
+
+    # ── Filtrar datos según tipo de usuario ──────────────────────
+    if is_proveedor_user:
+        # Los proveedores ven solo sus datos filtrados
+        df_final = filtrar_datos_proveedor(df_v_all, usuario_row)
+        filtro_info = f"📊 Mostrando datos filtrados para {user_rol}: {user_nombre}"
+    else:
+        # Admins e Israel ven todo
+        df_final = df_v_all.copy()
+        filtro_info = f"📊 Vista completa de administrador"
+
+    # ── Controles ─────────────────────────────────────────────────
+    df_final['Mes_N'] = df_final['Fecha'].dt.strftime('%B %Y')
+    meses = sorted(df_final['Mes_N'].unique().tolist(), reverse=True)
     
-    # Controles
-    col_mes, col_filtro = st.columns([2, 1])
+    col_mes, col_info, col_logout = st.columns([2, 2, 1])
     
     with col_mes:
-        # Selector de mes
-        if not df_v_filtrado.empty:
-            df_v_filtrado['Mes_Año'] = df_v_filtrado['Fecha'].dt.strftime('%B %Y')
-            meses_disponibles = sorted(df_v_filtrado['Mes_Año'].dropna().unique(), reverse=True)
-            
-            if meses_disponibles:
-                mes_seleccionado = st.selectbox("📅 Seleccionar Período:", meses_disponibles)
-            else:
-                st.warning("No hay datos disponibles")
-                return
+        if meses:
+            m_sel = st.selectbox("📅 Selecciona el período:", meses, key="mes_sel")
         else:
-            st.warning("No hay datos disponibles para este usuario")
+            st.warning("Sin datos disponibles para este usuario")
             return
     
-    with col_filtro:
-        # Filtro adicional para admins
-        if user_info['tipo'] in ['super_admin', 'admin']:
-            proveedores = ['TODOS'] + sorted(df_ventas['Proveedor'].dropna().unique().tolist())
-            proveedor_filtro = st.selectbox("🏢 Filtrar Proveedor:", proveedores)
-            
-            if proveedor_filtro != 'TODOS':
-                df_v_filtrado = df_v_filtrado[df_v_filtrado['Proveedor'].str.contains(proveedor_filtro, case=False, na=False)]
-                df_i_filtrado = df_i_filtrado[df_i_filtrado['Proveedor'].str.contains(proveedor_filtro, case=False, na=False)]
-    
-    # Generar métricas
-    metricas = calcular_metricas_proveedor(df_v_filtrado, mes_seleccionado)
-    
-    # Mostrar métricas principales
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        delta_color = "normal" if metricas['crecimiento'] >= 0 else "inverse"
-        st.metric(
-            "💰 Ventas Totales",
-            f"${metricas['total_ventas']:,.0f}",
-            delta=f"{metricas['crecimiento']:+.1f}%",
-            delta_color=delta_color
-        )
-    
-    with col2:
-        st.metric("📄 Facturas", f"{metricas['total_facturas']:,}")
-    
-    with col3:
-        st.metric("👥 Clientes Únicos", f"{metricas['clientes_unicos']:,}")
-    
-    with col4:
-        st.metric("🏪 Vendedores Activos", f"{metricas['vendedores_activos']:,}")
+    with col_info:
+        st.info(filtro_info)
     
     st.markdown("---")
+
+    # ── Análisis por mes seleccionado ─────────────────────────────
+    df_mes = df_final[df_final['Mes_N'] == m_sel].copy()
     
-    # Tabs principales
-    tab1, tab2, tab3, tab4 = st.tabs(["📊 Análisis", "🏪 Top Vendedores", "📦 Inventario", "🛒 Sugerido Compra"])
+    if df_mes.empty:
+        st.warning(f"⚠️ Sin datos para {m_sel}")
+        return
+
+    # ── Calcular métricas ─────────────────────────────────────────
+    metricas = calcular_metricas_proveedor(df_mes, m_sel, usuario_row)
+
+    # ── KPIs ──────────────────────────────────────────────────────
+    st.markdown(f"<div class='section-title'>📊 {m_sel} — Análisis {user_rol}</div>",
+                unsafe_allow_html=True)
+
+    k1, k2, k3, k4 = st.columns(4)
     
+    delta_color = "normal" if metricas['crecimiento'] >= 0 else "inverse"
+    
+    kpi_card(k1, metricas['total_ventas'], "Ventas Totales",
+             f"Crecimiento {metricas['crecimiento']:+.1f}%", "#3B82F6")
+    kpi_card(k2, metricas['total_facturas'], "Facturas",
+             f"Total transacciones", "#F59E0B", prefix="")
+    kpi_card(k3, metricas['clientes_unicos'], "Clientes Únicos",
+             f"Alcance de mercado", "#10B981", prefix="")
+    kpi_card(k4, metricas['vendedores_activos'], "Vendedores Activos",
+             f"Equipo de ventas", "#A855F7", prefix="")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ── Tabs ──────────────────────────────────────────────────────
+    if is_proveedor_user:
+        tab1, tab2, tab3 = st.tabs(["📊 Mi Análisis", "🏪 Vendedores", "📦 Productos"])
+    else:
+        tab1, tab2, tab3, tab4 = st.tabs(["📊 Análisis", "🏪 Vendedores", "📦 Productos", "🛡️ Admin"])
+
+    # ── Tab 1: Análisis ───────────────────────────────────────────
     with tab1:
-        # Gráficos básicos usando Streamlit nativo
         col_left, col_right = st.columns(2)
         
         with col_left:
-            st.markdown("### 🏷️ Ventas por Marca")
+            st.markdown("<div class='section-title'>🏷️ Distribución por Marca</div>",
+                        unsafe_allow_html=True)
             if not metricas['top_productos'].empty:
-                # Usar gráfico de barras básico de Streamlit
-                st.bar_chart(metricas['top_productos'])
+                fig_marcas = px.pie(
+                    values=metricas['top_productos'].values,
+                    names=metricas['top_productos'].index,
+                    hole=0.45,
+                    color_discrete_sequence=px.colors.qualitative.Set3
+                )
+                fig_marcas.update_layout(
+                    paper_bgcolor='#111827',
+                    plot_bgcolor='#111827',
+                    font_color='#E2E8F0',
+                    margin=dict(t=20, b=20, l=20, r=20),
+                    legend=dict(font=dict(color='#E2E8F0')),
+                    height=350
+                )
+                fig_marcas.update_traces(
+                    textfont=dict(color='#FFFFFF', size=12),
+                )
+                st.plotly_chart(fig_marcas, use_container_width=True)
             else:
-                st.info("📝 Sin datos de productos para mostrar")
-        
+                st.info("📝 Sin datos de marcas para mostrar")
+
         with col_right:
-            st.markdown("### 📈 Tendencia de Ventas")
-            if not df_v_filtrado.empty:
+            st.markdown("<div class='section-title'>📈 Tendencia de Ventas</div>",
+                        unsafe_allow_html=True)
+            if not df_mes.empty:
                 try:
-                    # Crear tendencia mensual
-                    tendencia = df_v_filtrado.groupby(df_v_filtrado['Fecha'].dt.to_period('M'))['Total'].sum()
-                    tendencia.index = tendencia.index.astype(str)
-                    st.line_chart(tendencia)
-                except Exception:
-                    st.info("📝 Sin datos suficientes para mostrar tendencia")
-            else:
-                st.info("📝 Sin datos para mostrar tendencia")
-    
+                    # Tendencia diaria
+                    tendencia = df_mes.groupby(df_mes['Fecha'].dt.date)['Total'].sum().reset_index()
+                    
+                    fig_trend = px.line(
+                        tendencia, x='Fecha', y='Total',
+                        line_shape='spline'
+                    )
+                    fig_trend.update_layout(
+                        paper_bgcolor='#111827',
+                        plot_bgcolor='#111827',
+                        font_color='#E2E8F0',
+                        xaxis=dict(gridcolor='#1E3A8A22'),
+                        yaxis=dict(gridcolor='#1E3A8A22'),
+                        margin=dict(t=20, b=20, l=20, r=20),
+                        height=350
+                    )
+                    fig_trend.update_traces(line_color='#3B82F6', line_width=3)
+                    st.plotly_chart(fig_trend, use_container_width=True)
+                except:
+                    st.info("📝 Sin datos suficientes para tendencia")
+
+    # ── Tab 2: Vendedores ─────────────────────────────────────────
     with tab2:
-        # Top vendedores
         st.markdown("### 🏆 Ranking de Vendedores")
+        st.caption(f"Vendedores que más venden {'tus productos' if is_proveedor_user else 'en total'}")
         
         if not metricas['top_vendedores'].empty:
+            # Mostrar ranking visual
             for i, (vendedor, venta) in enumerate(metricas['top_vendedores'].items(), 1):
-                # Extraer solo el nombre del vendedor
+                # Extraer nombre del vendedor
                 nombre = vendedor.split(' - ')[1] if ' - ' in vendedor else vendedor
-                nombre_corto = nombre[:30] + "..." if len(nombre) > 30 else nombre
+                nombre_corto = nombre[:35] + "..." if len(nombre) > 35 else nombre
                 
-                emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}."
+                emoji = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"#{i}"
+                
+                # Calcular porcentaje del top vendedor
+                pct = round(venta / metricas['top_vendedores'].iloc[0] * 100) if metricas['top_vendedores'].iloc[0] > 0 else 0
                 
                 st.markdown(f"""
-                <div class="top-vendor-card">
-                    <h4>{emoji} {nombre_corto}</h4>
-                    <p style="font-size: 1.2rem; margin: 0;"><strong>${venta:,.0f}</strong></p>
+                <div style='background:linear-gradient(135deg,#1E40AF,#3B82F6);color:white;padding:1rem;border-radius:10px;margin:0.5rem 0;'>
+                    <div style='display:flex;justify-content:space-between;align-items:center;'>
+                        <div>
+                            <span style='font-size:1.2rem;font-weight:bold;'>{emoji}</span>
+                            <span style='font-size:1.1rem;margin-left:10px;'>{nombre_corto}</span>
+                        </div>
+                        <div style='text-align:right;'>
+                            <div style='font-size:1.3rem;font-weight:bold;'>${venta:,.0f}</div>
+                            <div style='font-size:0.9rem;opacity:0.8;'>{pct}%</div>
+                        </div>
+                    </div>
                 </div>
                 """, unsafe_allow_html=True)
         else:
             st.info("📝 Sin datos de vendedores para el período seleccionado")
-    
+
+    # ── Tab 3: Productos ──────────────────────────────────────────
     with tab3:
-        # Inventario
-        st.markdown("### 📦 Estado del Inventario")
+        st.markdown("### 📦 Detalle de Productos")
         
-        if not df_i_filtrado.empty:
-            # Métricas de inventario
-            total_productos = len(df_i_filtrado)
-            valor_inventario = (df_i_filtrado['Cantidad'] * df_i_filtrado['Costo']).sum()
-            productos_agotados = len(df_i_filtrado[df_i_filtrado['Cantidad'] <= 0])
+        if not df_mes.empty:
+            # Resumen por marca/producto
+            resumen = df_mes.groupby(['Marca', 'Proveedor']).agg({
+                'Total': ['sum', 'count', 'mean'],
+                'Cliente': 'nunique'
+            }).round(2)
             
+            resumen.columns = ['Venta Total', 'Facturas', 'Venta Promedio', 'Clientes Únicos']
+            resumen = resumen.reset_index().sort_values('Venta Total', ascending=False)
+            
+            # Métricas de productos
             col1, col2, col3 = st.columns(3)
             with col1:
-                st.metric("📦 Total Productos", f"{total_productos:,}")
+                st.metric("🏷️ Marcas Activas", resumen['Marca'].nunique())
             with col2:
-                st.metric("💰 Valor Inventario", f"${valor_inventario:,.0f}")
+                st.metric("🏢 Proveedores", resumen['Proveedor'].nunique())
             with col3:
-                st.metric("⚠️ Productos Agotados", f"{productos_agotados:,}")
+                promedio_por_marca = resumen['Venta Total'].mean()
+                st.metric("💰 Promedio por Marca", f"${promedio_por_marca:,.0f}")
             
-            # Tabla de inventario
-            st.markdown("#### 📋 Detalle de Inventario")
-            df_inv_display = df_i_filtrado[['Marca', 'Descripcion', 'Cantidad', 'Costo', 'PVP']].copy()
-            df_inv_display['Valor Total'] = df_inv_display['Cantidad'] * df_inv_display['Costo']
-            st.dataframe(df_inv_display, use_container_width=True, height=350)
+            # Tabla detallada
+            st.markdown("#### 📋 Resumen por Marca")
+            st.dataframe(resumen, use_container_width=True, height=400)
+            
+            # Gráfico de barras
+            st.markdown("#### 📊 Top 10 Marcas")
+            top_10 = resumen.head(10)
+            fig_bar = px.bar(
+                top_10, x='Venta Total', y='Marca',
+                orientation='h',
+                color='Venta Total',
+                color_continuous_scale='Blues'
+            )
+            fig_bar.update_layout(
+                paper_bgcolor='#111827',
+                plot_bgcolor='#111827',
+                font_color='#E2E8F0',
+                height=400,
+                showlegend=False
+            )
+            st.plotly_chart(fig_bar, use_container_width=True)
         else:
-            st.info("📝 Sin datos de inventario disponibles")
-    
-    with tab4:
-        # Sugerido de compra
-        st.markdown("### 🛒 Sugerido de Compra")
-        
-        df_sugerido = generar_sugerido_compra(df_i_filtrado, df_v_filtrado)
-        
-        if not df_sugerido.empty:
-            # Resumen del sugerido
-            total_sugerido = df_sugerido['Valor_Compra'].sum()
-            productos_sugeridos = len(df_sugerido)
+            st.info("📝 Sin datos de productos disponibles")
+
+    # ── Tab 4: Admin (Solo para admins) ───────────────────────────
+    if not is_proveedor_user and 'tab4' in locals():
+        with tab4:
+            st.markdown("### 🛡️ Panel de Administración")
             
-            col1, col2 = st.columns(2)
-            with col1:
-                st.metric("💸 Valor Total Sugerido", f"${total_sugerido:,.0f}")
-            with col2:
-                st.metric("📦 Productos a Reponer", f"{productos_sugeridos:,}")
-            
-            # Tabla de sugeridos
-            st.markdown("#### 📋 Lista de Reposición")
-            df_display = df_sugerido[['Marca', 'Descripcion', 'Cantidad', 'Sugerido_Compra', 'Costo', 'Valor_Compra']].copy()
-            df_display.columns = ['Marca', 'Producto', 'Stock Actual', 'Cantidad Sugerida', 'Costo Unit.', 'Valor Total']
-            
-            st.dataframe(df_display, use_container_width=True, height=400)
-            
-            # Alertas de productos críticos
-            productos_criticos = df_sugerido[df_sugerido['Cantidad'] <= 0]
-            if not productos_criticos.empty:
-                st.markdown(f"""
-                <div class="alert-card">
-                    <h4>⚠️ PRODUCTOS AGOTADOS</h4>
-                    <p>{len(productos_criticos)} productos sin stock requieren reposición urgente</p>
-                </div>
-                """, unsafe_allow_html=True)
-        else:
-            st.info("✅ No hay productos que requieran reposición según la rotación actual")
+            if is_super_admin:
+                st.success("🔑 Acceso Super Administrador")
+                
+                # Estadísticas generales
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    total_proveedores = df_final['Proveedor'].nunique()
+                    st.metric("🏢 Proveedores", total_proveedores)
+                with col2:
+                    total_marcas = df_final['Marca'].nunique()
+                    st.metric("🏷️ Marcas", total_marcas)
+                with col3:
+                    total_vendedores = df_final['Vendedor'].nunique()
+                    st.metric("👥 Vendedores", total_vendedores)
+                with col4:
+                    total_clientes = df_final['Cliente'].nunique()
+                    st.metric("🏪 Clientes", total_clientes)
+                
+                # Análisis por proveedor
+                st.markdown("#### 📊 Análisis por Proveedor")
+                analisis_prov = df_mes.groupby('Proveedor').agg({
+                    'Total': 'sum',
+                    'Cliente': 'nunique',
+                    'Vendedor': 'nunique'
+                }).round(0).reset_index()
+                analisis_prov.columns = ['Proveedor', 'Ventas', 'Clientes', 'Vendedores']
+                analisis_prov = analisis_prov.sort_values('Ventas', ascending=False)
+                st.dataframe(analisis_prov, use_container_width=True)
+                
+            else:
+                st.info("🔒 Panel disponible solo para Super Administrador")
+
 
 # ══════════════════════════════════════════════════════════════════
 #  MAIN
 # ══════════════════════════════════════════════════════════════════
-
 def main():
-    """Función principal"""
-    
-    if not st.session_state.get('authenticated', False):
+    if 'logged_in' not in st.session_state:
+        st.session_state['logged_in'] = False
+
+    if not st.session_state['logged_in']:
         pantalla_login()
-    else:
-        dashboard_proveedor()
+        return
+
+    try:
+        df_v, df_p, _ = cargar_ventas_presupuesto()
+    except ValueError as e:
+        st.error(str(e))
+        st.stop()
+
+    if df_v.empty:
+        st.error("❌ Sin datos de ventas en la hoja VENTAS.")
+        return
+
+    dashboard_proveedores(df_v, df_p, st.session_state.get('user_row', {}))
+
 
 if __name__ == "__main__":
     main()
