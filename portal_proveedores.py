@@ -384,12 +384,13 @@ def dashboard_proveedores(df_v_all, df_p, usuario_row):
     df_final = filtrar_datos_proveedor(df_v_all, usuario_row) if is_proveedor_user else df_v_all.copy()
     filtro_info = f"📊 Vista filtrada para {user_rol}" if is_proveedor_user else f"📊 Vista completa de administrador"
 
-    # Validar que df_final tenga datos para evitar errores de dt.strftime
     if df_final.empty:
         st.warning("⚠️ No se encontraron datos para este usuario o zona.")
         return
 
-    df_final['Mes_N'] = pd.to_datetime(df_final['Fecha']).dt.strftime('%B %Y')
+    # Usar to_datetime para evitar errores de .dt
+    fecha_dt = pd.to_datetime(df_final['Fecha'])
+    df_final['Mes_N'] = fecha_dt.dt.strftime('%B %Y')
     meses = sorted(df_final['Mes_N'].unique().tolist(), reverse=True)
     
     col_mes, col_info = st.columns([1, 2])
@@ -414,7 +415,9 @@ def dashboard_proveedores(df_v_all, df_p, usuario_row):
     kpi_card(k3, metricas['clientes_unicos'], "Cobertura de Clientes", prefix="")
     kpi_card(k4, metricas['vendedores_activos'], "Fuerza de Ventas", prefix="")
 
-tab1, tab2, tab3, tab4 = st.tabs(["📈 Análisis Comercial", "📋 Sábana de Ventas", "📦 Rendimiento de Productos", "🏆 Ranking Vendedores"])
+    # Aquí están las 4 pestañas perfectamente alineadas
+    tab1, tab2, tab3, tab4 = st.tabs(["📈 Análisis Comercial", "📋 Sábana de Ventas", "📦 Rendimiento de Productos", "🏆 Ranking Vendedores"])
+
     with tab1:
         col_l, col_r = st.columns(2)
         with col_l:
@@ -433,24 +436,17 @@ tab1, tab2, tab3, tab4 = st.tabs(["📈 Análisis Comercial", "📋 Sábana de V
         st.markdown("### 📋 Sábana de Ventas Detallada")
         if not df_mes.empty:
             df_detalle = df_mes.copy()
-            
-            # Anonimizar al cliente
             df_detalle['Cliente_Codificado'] = df_detalle['Cliente'].apply(anonimizar_cliente)
             
-            # Definir qué columnas mostrar en la sábana (en un orden lógico)
             columnas_sabana = [
                 'Fecha', 'Factura', 'Ciudad', 'Ruta', 'Vendedor', 
                 'Cliente_Codificado', 'Grupo', 'SubGrupo', 'Marca', 
                 'Codigo_Prod', 'Descripcion', 'Cantidad', 'Total'
             ]
             
-            # Asegurarse de que las columnas existan en el DataFrame antes de mostrarlas
             columnas_finales = [col for col in columnas_sabana if col in df_detalle.columns]
-            
-            # Crear el DataFrame final a mostrar
             df_mostrar = df_detalle[columnas_finales].rename(columns={'Cliente_Codificado': 'Cód. Cliente'})
             
-            # Mostrar la tabla en Streamlit
             st.dataframe(
                 df_mostrar.style.format({
                     'Total': '${:,.2f}',
@@ -478,40 +474,36 @@ tab1, tab2, tab3, tab4 = st.tabs(["📈 Análisis Comercial", "📋 Sábana de V
             with c3: st.metric("💰 Promedio por Línea", f"${resumen['Volumen Negocio'].mean():,.2f}")
             
             st.dataframe(resumen, use_container_width=True)
-      with tab4:
+
+    with tab4:
         st.markdown("### 🏆 Top Vendedores del Mes")
         st.markdown("Rendimiento de la fuerza de ventas basado en el volumen de facturación.")
         
         if not df_mes.empty:
-            # 1. Agrupar y ordenar ventas por vendedor
             ranking_df = df_mes.groupby('Vendedor')['Total'].sum().reset_index()
             ranking_df = ranking_df.sort_values('Total', ascending=False).reset_index(drop=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # 2. Generar tarjetas visuales profesionales
             for index, row in ranking_df.iterrows():
                 vendedor = row['Vendedor']
                 total = row['Total']
                 
-                # Lógica de medallas y colores corporativos
                 if index == 0:
                     medalla = "🥇"
-                    color_borde = "#F59E0B" # Dorado
+                    color_borde = "#F59E0B"
                 elif index == 1:
                     medalla = "🥈"
-                    color_borde = "#94A3B8" # Plateado
+                    color_borde = "#94A3B8"
                 elif index == 2:
                     medalla = "🥉"
-                    color_borde = "#B45309" # Bronce
+                    color_borde = "#B45309"
                 else:
                     medalla = f"#{index + 1}"
-                    color_borde = "#1E3A8A" # Azul corporativo normal
+                    color_borde = "#1E3A8A"
                 
-                # Extraer solo el nombre (Quitar el "PDV01 - ")
                 nombre_limpio = vendedor.split(' - ')[1] if ' - ' in vendedor else vendedor
                 
-                # 3. Diseño de la tarjeta HTML/CSS
                 st.markdown(f"""
                 <div style="
                     background: linear-gradient(145deg, #111827, #1A2540);
