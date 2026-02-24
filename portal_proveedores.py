@@ -91,7 +91,9 @@ def filtrar_datos_proveedor(df_ventas, user_info):
     return df_filtrado
 
 def calcular_metricas_proveedor(df_ventas, mes_seleccionado, user_info):
-    df_mes = df_ventas[df_ventas['Fecha'].dt.strftime('%B %Y') == mes_seleccionado]
+    # 1. Envolvemos la columna en pd.to_datetime para evitar el error .dt
+    fecha_dt = pd.to_datetime(df_ventas['Fecha'])
+    df_mes = df_ventas[fecha_dt.dt.strftime('%B %Y') == mes_seleccionado]
     
     if df_mes.empty:
         return {
@@ -115,7 +117,8 @@ def calcular_metricas_proveedor(df_ventas, mes_seleccionado, user_info):
         else:
             mes_anterior = f"{calendar.month_name[fecha_actual.month - 1]} {fecha_actual.year}"
         
-        df_anterior = df_ventas[df_ventas['Fecha'].dt.strftime('%B %Y') == mes_anterior]
+        # 2. Aplicamos la misma corrección aquí para el mes anterior
+        df_anterior = df_ventas[fecha_dt.dt.strftime('%B %Y') == mes_anterior]
         ventas_anterior = df_anterior['Total'].sum()
         crecimiento = ((total_ventas - ventas_anterior) / ventas_anterior) * 100 if ventas_anterior > 0 else 0
     except:
