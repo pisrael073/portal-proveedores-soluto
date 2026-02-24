@@ -393,36 +393,37 @@ def dashboard_proveedores(df_v_all, df_p, usuario_row):
         f"<div><div class='top-bar-user'>👤 {user_nombre}</div></div>"
         f"</div>", unsafe_allow_html=True)
 
-    with st.sidebar:
+  with st.sidebar:
         st.markdown(f"**👤 {user_nombre}**")
         st.markdown(f"**🎭 Rol:** {user_rol}")
         st.markdown(f"**📍 Zona:** {user_zona or '—'}")
         
-        if is_proveedor_user: st.info("📊 Vista filtrada por tus productos")
-        elif is_super_admin or is_admin: st.success("🔑 Acceso completo")
+        if is_proveedor_user: 
+            st.info("📊 Vista filtrada por tus productos")
+        elif is_super_admin or is_admin: 
+            st.success("🔑 Acceso completo")
+            # --- NUEVO: FILTRO EXCLUSIVO PARA ADMINS ---
+            st.markdown("---")
+            lista_prov = ["TODOS"] + sorted([str(p) for p in df_v_all['Proveedor'].unique() if str(p).strip() != ''])
+            prov_sel = st.selectbox("🔎 Auditar Proveedor:", lista_prov)
+            # -------------------------------------------
         
         if st.button("🚪 Cerrar Sesión"):
             st.session_state.clear()
             st.rerun()
 
-    df_final = filtrar_datos_proveedor(df_v_all, usuario_row) if is_proveedor_user else df_v_all.copy()
-    filtro_info = f"📊 Vista filtrada para {user_rol}" if is_proveedor_user else f"📊 Vista completa de administrador"
-
-    if df_final.empty:
-        st.warning("⚠️ No se encontraron datos para este usuario o zona.")
-        return
-
-    fecha_dt = pd.to_datetime(df_final['Fecha'])
-    df_final['Mes_N'] = fecha_dt.dt.strftime('%B %Y')
-    meses = sorted(df_final['Mes_N'].unique().tolist(), reverse=True)
-    
-    col_mes, col_info = st.columns([1, 2])
-    with col_mes:
-        if meses: m_sel = st.selectbox("📅 Período:", meses)
+    # --- LÓGICA DE FILTRADO INTELIGENTE ---
+    if is_proveedor_user:
+        df_final = filtrar_datos_proveedor(df_v_all, usuario_row)
+        filtro_info = f"📊 Vista filtrada para {user_rol}"
+    else:
+        # Si eres admin y seleccionaste un proveedor específico
+        if prov_sel != "TODOS":
+            df_final = df_v_all[df_v_all['Proveedor'] == prov_sel].copy()
+            filtro_info = f"📊 Modo Auditoría: Proveedor {prov_sel}"
         else:
-            st.warning("⚠️ Sin datos disponibles")
-            return
-    with col_info: st.info(filtro_info)
+            df_final = df_v_all.copy()
+            filtro_info = "📊 Vista Global de Administrador (Todos los proveedores)"
 
     df_mes = df_final[df_final['Mes_N'] == m_sel].copy()
     if df_mes.empty:
@@ -473,17 +474,21 @@ def dashboard_proveedores(df_v_all, df_p, usuario_row):
                 'Ciudad_Codificada': 'Cód. Zona'
             })
             
-            st.dataframe(
-                df_mostrar.style.format({
-                    'Total': '${:,.2f}',
-                    'Cantidad': '{:,.0f}'
-                }),
+           st.dataframe(
+                df_mostrar,
                 use_container_width=True, 
-                hide_index=True
+                hide_index=True,
+                column_config={
+                    "Total": st.column_config.NumberColumn(
+                        "Total",
+                        format="$%.2f"
+                    ),
+                    "Cantidad": st.column_config.NumberColumn(
+                        "Cantidad",
+                        format="%d"
+                    )
+                }
             )
-        else: 
-            st.info("Sin datos de ventas para este período")
-
     with tab3:
         st.markdown("### 📦 Detalle Analítico de Productos")
         if not df_mes.empty:
