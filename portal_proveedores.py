@@ -601,17 +601,19 @@ def dashboard_proveedores(df_v_all, df_p, df_i_all, usuario_row):
         st.markdown("Disponibilidad de stock detallado (Saldos y Cajas) para tu portafolio.")
         
         if not df_inv_final.empty:
-            # Lista de columnas exactas que pasaste
-            cols_base = ['Proveedor', 'Marca', 'Group', 'Sub Grupo', 'Codigo', 'Descripcion', 
-                         'Costo', 'Iva', 'PVP', '% Rent', 'Unid.', 'Cant.', 'Und. X Cja', 
-                         'Cant. Emb.', 'Uni. Emb.', 'Total']
+            # --- AQUÍ ESTÁ EL CAMBIO: Lista limpia sin PVP ni % Rent ---
+            cols_base = [
+                'Proveedor', 'Marca', 'Group', 'Sub Grupo', 'Codigo', 'Descripcion', 
+                'Costo', 'Iva', 'Unid.', 'Cant.', 'Und. X Cja', 'Cant. Emb.', 'Uni. Emb.'
+            ]
             
             # Filtrar solo las que realmente existan en el DataFrame cargado
             cols_reales = [c for c in df_inv_final.columns if c in cols_base]
             
             # Prevención de errores: Si por nombres distintos no encuentra nada, trae todo
             if not cols_reales:
-                cols_reales = df_inv_final.columns.tolist()
+                # Si no encuentra las columnas, por seguridad EVITAMOS mostrar PVP y Rent
+                cols_reales = [c for c in df_inv_final.columns if c.upper() not in ['PVP', '% RENT', 'RENTABILIDAD']]
 
             df_mostrar_inv = df_inv_final[cols_reales].copy()
 
