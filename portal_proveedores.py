@@ -58,11 +58,37 @@ def anonimizar_cliente(nombre):
     if len(partes) >= 2:
         return f"{partes[0][:3]}{partes[1][:3]}".upper()
     return partes[0][:6].upper()
+
 def anonimizar_ciudad(ciudad):
-    """Convierte nombres de ciudades a códigos de 3 letras (ej. AMBATO -> AMB)"""
+    """Convierte ciudades a códigos de zona estratégicos ininteligibles para proveedores"""
     if pd.isna(ciudad) or str(ciudad).strip() == "":
-        return "DESC"
-    return str(ciudad).strip()[:3].upper()
+        return "ZN-00"
+    
+    ciudad_norm = str(ciudad).strip().upper()
+    
+    # Diccionario de zonas de tu operación (puedes agregar o cambiar las que necesites)
+    mapa_zonas = {
+        'AMBATO': 'ZN-A1',
+        'LATACUNGA': 'ZN-B1',
+        'RIOBAMBA': 'ZN-C1',
+        'QUITO': 'ZN-Q1',
+        'GUAYAQUIL': 'ZN-G1',
+        'CUENCA': 'ZN-S1',
+        'BAÑOS': 'ZN-A2',
+        'PELILEO': 'ZN-A3',
+        'PILLARO': 'ZN-A4',
+        'SALCEDO': 'ZN-B2',
+        'PUJILI': 'ZN-B3'
+    }
+    
+    # Busca si la ciudad está en nuestro mapa secreto
+    for key, secreto in mapa_zonas.items():
+        if key in ciudad_norm:
+            return secreto
+            
+    # Si es una ciudad nueva que no está en la lista, genera un código genérico
+    return f"ZN-X{len(ciudad_norm)}"
+
 # ══════════════════════════════════════════════════════════════════
 #  FUNCIONES DE PROVEEDORES
 # ══════════════════════════════════════════════════════════════════
@@ -95,7 +121,6 @@ def filtrar_datos_proveedor(df_ventas, user_info):
     return df_filtrado
 
 def calcular_metricas_proveedor(df_ventas, mes_seleccionado, user_info):
-    # 1. Envolvemos la columna en pd.to_datetime para evitar el error .dt
     fecha_dt = pd.to_datetime(df_ventas['Fecha'])
     df_mes = df_ventas[fecha_dt.dt.strftime('%B %Y') == mes_seleccionado]
     
@@ -121,7 +146,6 @@ def calcular_metricas_proveedor(df_ventas, mes_seleccionado, user_info):
         else:
             mes_anterior = f"{calendar.month_name[fecha_actual.month - 1]} {fecha_actual.year}"
         
-        # 2. Aplicamos la misma corrección aquí para el mes anterior
         df_anterior = df_ventas[fecha_dt.dt.strftime('%B %Y') == mes_anterior]
         ventas_anterior = df_anterior['Total'].sum()
         crecimiento = ((total_ventas - ventas_anterior) / ventas_anterior) * 100 if ventas_anterior > 0 else 0
@@ -227,7 +251,6 @@ def cargar_ventas_presupuesto():
     def find_col(df, keyword):
         return next((c for c in df.columns if keyword in norm_txt(c)), None)
 
-    # Buscar todas las columnas necesarias para la sábana de ventas
     col_fecha = find_col(df_raw, 'FECHA')
     col_total = find_col(df_raw, 'TOTAL')
     col_vend = find_col(df_raw, 'VENDEDOR')
@@ -253,8 +276,7 @@ def cargar_ventas_presupuesto():
     mask_ok = fecha_series.notna()
     df_v = df_raw[mask_ok].copy()
     
-    # Asignación de datos limpios
-    df_v['Fecha'] = fecha_series[mask_ok].dt.date # Convertir a fecha simple sin horas
+    df_v['Fecha'] = fecha_series[mask_ok].dt.date
     df_v['Total'] = total_series[mask_ok].values
     df_v['Vendedor'] = df_v[col_vend].astype(str) if col_vend else ''
     df_v['Cliente'] = df_v[col_cli].astype(str) if col_cli else ''
@@ -262,7 +284,6 @@ def cargar_ventas_presupuesto():
     df_v['Proveedor'] = df_v[col_prov].astype(str) if col_prov else ''
     df_v['Descripcion'] = df_v[col_desc].astype(str) if col_desc else 'Sin Detalle'
     
-    # Nuevas columnas para la sábana
     df_v['Factura'] = df_v[col_factura].astype(str) if col_factura else ''
     df_v['Ciudad'] = df_v[col_ciudad].astype(str) if col_ciudad else ''
     df_v['Ruta'] = df_v[col_ruta].astype(str) if col_ruta else ''
@@ -270,7 +291,6 @@ def cargar_ventas_presupuesto():
     df_v['SubGrupo'] = df_v[col_subgrupo].astype(str) if col_subgrupo else ''
     df_v['Codigo_Prod'] = df_v[col_codigo].astype(str) if col_codigo else ''
     
-    # Cantidad (numérico)
     if col_cantidad:
         df_v['Cantidad'] = pd.to_numeric(df_raw[col_cantidad], errors='coerce').fillna(0)
     else:
@@ -392,7 +412,6 @@ def dashboard_proveedores(df_v_all, df_p, usuario_row):
         st.warning("⚠️ No se encontraron datos para este usuario o zona.")
         return
 
-    # Usar to_datetime para evitar errores de .dt
     fecha_dt = pd.to_datetime(df_final['Fecha'])
     df_final['Mes_N'] = fecha_dt.dt.strftime('%B %Y')
     meses = sorted(df_final['Mes_N'].unique().tolist(), reverse=True)
@@ -419,7 +438,6 @@ def dashboard_proveedores(df_v_all, df_p, usuario_row):
     kpi_card(k3, metricas['clientes_unicos'], "Cobertura de Clientes", prefix="")
     kpi_card(k4, metricas['vendedores_activos'], "Fuerza de Ventas", prefix="")
 
-    # Aquí están las 4 pestañas perfectamente alineadas
     tab1, tab2, tab3, tab4 = st.tabs(["📈 Análisis Comercial", "📋 Sábana de Ventas", "📦 Rendimiento de Productos", "🏆 Ranking Vendedores"])
 
     with tab1:
@@ -440,23 +458,19 @@ def dashboard_proveedores(df_v_all, df_p, usuario_row):
         st.markdown("### 📋 Sábana de Ventas Detallada")
         if not df_mes.empty:
             df_detalle = df_mes.copy()
-            
-            # 1. Anonimizar Cliente y Ciudad
             df_detalle['Cliente_Codificado'] = df_detalle['Cliente'].apply(anonimizar_cliente)
             df_detalle['Ciudad_Codificada'] = df_detalle['Ciudad'].apply(anonimizar_ciudad)
             
-            # 2. Definir las columnas (usando Ciudad_Codificada en lugar de Ciudad)
             columnas_sabana = [
                 'Fecha', 'Factura', 'Ciudad_Codificada', 'Ruta', 'Vendedor', 
                 'Cliente_Codificado', 'Grupo', 'SubGrupo', 'Marca', 
                 'Codigo_Prod', 'Descripcion', 'Cantidad', 'Total'
             ]
             
-            # 3. Filtrar y renombrar para la vista final
             columnas_finales = [col for col in columnas_sabana if col in df_detalle.columns]
             df_mostrar = df_detalle[columnas_finales].rename(columns={
                 'Cliente_Codificado': 'Cód. Cliente',
-                'Ciudad_Codificada': 'Cód. Zona'  # Lo llamamos Zona para despistar más
+                'Ciudad_Codificada': 'Cód. Zona'
             })
             
             st.dataframe(
@@ -538,7 +552,7 @@ def dashboard_proveedores(df_v_all, df_p, usuario_row):
                 </div>
                 """, unsafe_allow_html=True)
         else:
-            st.info("Sin datos de ventas para generar el ranking.")      
+            st.info("Sin datos de ventas para generar el ranking.")
 
 def main():
     if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
