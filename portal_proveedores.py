@@ -58,7 +58,11 @@ def anonimizar_cliente(nombre):
     if len(partes) >= 2:
         return f"{partes[0][:3]}{partes[1][:3]}".upper()
     return partes[0][:6].upper()
-
+def anonimizar_ciudad(ciudad):
+    """Convierte nombres de ciudades a códigos de 3 letras (ej. AMBATO -> AMB)"""
+    if pd.isna(ciudad) or str(ciudad).strip() == "":
+        return "DESC"
+    return str(ciudad).strip()[:3].upper()
 # ══════════════════════════════════════════════════════════════════
 #  FUNCIONES DE PROVEEDORES
 # ══════════════════════════════════════════════════════════════════
@@ -436,16 +440,24 @@ def dashboard_proveedores(df_v_all, df_p, usuario_row):
         st.markdown("### 📋 Sábana de Ventas Detallada")
         if not df_mes.empty:
             df_detalle = df_mes.copy()
-            df_detalle['Cliente_Codificado'] = df_detalle['Cliente'].apply(anonimizar_cliente)
             
+            # 1. Anonimizar Cliente y Ciudad
+            df_detalle['Cliente_Codificado'] = df_detalle['Cliente'].apply(anonimizar_cliente)
+            df_detalle['Ciudad_Codificada'] = df_detalle['Ciudad'].apply(anonimizar_ciudad)
+            
+            # 2. Definir las columnas (usando Ciudad_Codificada en lugar de Ciudad)
             columnas_sabana = [
-                'Fecha', 'Factura', 'Ciudad', 'Ruta', 'Vendedor', 
+                'Fecha', 'Factura', 'Ciudad_Codificada', 'Ruta', 'Vendedor', 
                 'Cliente_Codificado', 'Grupo', 'SubGrupo', 'Marca', 
                 'Codigo_Prod', 'Descripcion', 'Cantidad', 'Total'
             ]
             
+            # 3. Filtrar y renombrar para la vista final
             columnas_finales = [col for col in columnas_sabana if col in df_detalle.columns]
-            df_mostrar = df_detalle[columnas_finales].rename(columns={'Cliente_Codificado': 'Cód. Cliente'})
+            df_mostrar = df_detalle[columnas_finales].rename(columns={
+                'Cliente_Codificado': 'Cód. Cliente',
+                'Ciudad_Codificada': 'Cód. Zona'  # Lo llamamos Zona para despistar más
+            })
             
             st.dataframe(
                 df_mostrar.style.format({
