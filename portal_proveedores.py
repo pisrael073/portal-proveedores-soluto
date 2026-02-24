@@ -102,19 +102,29 @@ def tiene_permisos_admin(user_rol):
 def es_proveedor(user_rol):
     return user_rol.lower() in ('proveedor', 'marca', 'distribuidor', 'supplier')
 
-def filtrar_datos_proveedor(df_ventas, user_info):
+def filtrar_datos_proveedor(df_datos, user_info):
     user_rol = user_info.get('_rol', '').lower()
     if not es_proveedor(user_rol):
-        return df_ventas
+        return df_datos
     
     filtro = user_info.get('_zona', '').strip()
     if not filtro:
         filtro = user_info.get('_nombre_orig', '').strip()
 
-    mask = (df_ventas['Proveedor'].str.contains(filtro, case=False, na=False)) | \
-           (df_ventas['Marca'].str.contains(filtro, case=False, na=False))
+    # Intenta buscar en Proveedor o Marca (dependiendo de cómo se llamen las columnas en el df)
+    mask = pd.Series([False] * len(df_datos))
     
-    df_filtrado = df_ventas[mask]
+    if 'Proveedor' in df_datos.columns:
+        mask = mask | df_datos['Proveedor'].str.contains(filtro, case=False, na=False)
+    if 'Marca' in df_datos.columns:
+        mask = mask | df_datos['Marca'].str.contains(filtro, case=False, na=False)
+    # Soporte por si en inventario la columna está en mayúsculas
+    if 'PROVEEDOR' in df_datos.columns:
+        mask = mask | df_datos['PROVEEDOR'].astype(str).str.contains(filtro, case=False, na=False)
+    if 'MARCA' in df_datos.columns:
+        mask = mask | df_datos['MARCA'].astype(str).str.contains(filtro, case=False, na=False)
+        
+    df_filtrado = df_datos[mask]
     return df_filtrado
 
 def calcular_metricas_proveedor(df_ventas, mes_seleccionado, user_info):
@@ -241,6 +251,7 @@ def cargar_ventas_presupuesto():
     gc = get_gc()
     sh = gc.open("soluto")
 
+    # 1. CARGAR VENTAS
     ws_v = sh.worksheet("VENTAS")
     df_raw = pd.DataFrame(ws_v.get_all_records())
     df_raw = limpiar_columnas(df_raw)
@@ -255,7 +266,6 @@ def cargar_ventas_presupuesto():
     col_marca = find_col(df_raw, 'MARCA')
     col_prov = find_col(df_raw, 'PROVEEDOR')
     col_desc = find_col(df_raw, 'DESCRIPCION')
-    
     col_factura = find_col(df_raw, 'FACTURA')
     col_ciudad = find_col(df_raw, 'CIUDAD')
     col_ruta = find_col(df_raw, 'RUTA')
@@ -280,7 +290,6 @@ def cargar_ventas_presupuesto():
     df_v['Marca'] = df_v[col_marca].astype(str) if col_marca else ''
     df_v['Proveedor'] = df_v[col_prov].astype(str) if col_prov else ''
     df_v['Descripcion'] = df_v[col_desc].astype(str) if col_desc else 'Sin Detalle'
-    
     df_v['Factura'] = df_v[col_factura].astype(str) if col_factura else ''
     df_v['Ciudad'] = df_v[col_ciudad].astype(str) if col_ciudad else ''
     df_v['Ruta'] = df_v[col_ruta].astype(str) if col_ruta else ''
@@ -293,6 +302,7 @@ def cargar_ventas_presupuesto():
     else:
         df_v['Cantidad'] = 0
 
+    # 2. CARGAR PRESUPUESTO
     try:
         ws_p = sh.worksheet("PRESUPUESTO")
         df_p = pd.DataFrame(ws_p.get_all_records())
@@ -300,7 +310,15 @@ def cargar_ventas_presupuesto():
     except:
         df_p = pd.DataFrame()
 
-    return df_v, df_p, {}
+    # 3. CARGAR INVENTARIO (Nuevo)
+    try:
+        ws_i = sh.worksheet("INVENTARIO")
+        df_i = pd.DataFrame(ws_i.get_all_records())
+        df_i = limpiar_columnas(df_i)
+    except:
+        df_i = pd.DataFrame()
+
+    return df_v, df_p, df_i
 
 # ══════════════════════════════════════════════════════════════════
 #  LOGIN Y PANTALLAS
@@ -370,7 +388,7 @@ def kpi_card(col, valor, label, sub="", prefix="$", suffix=""):
         unsafe_allow_html=True
     )
 
-def dashboard_proveedores(df_v_all, df_p, usuario_row):
+def dashboard_proveedores(df_v_all, df_p, df_i_all, usuario_row):
     user_nombre = st.session_state['user_nombre']
     user_rol = st.session_state['user_rol']
     user_zona = st.session_state['user_zona']
@@ -409,15 +427,23 @@ def dashboard_proveedores(df_v_all, df_p, usuario_row):
             st.session_state.clear()
             st.rerun()
 
+    # --- LÓGICA DE FILTRADO PARA VENTAS E INVENTARIO ---
     if is_proveedor_user:
         df_final = filtrar_datos_proveedor(df_v_all, usuario_row)
+        df_inv_final = filtrar_datos_proveedor(df_i_all, usuario_row) if not df_i_all.empty else df_i_all
         filtro_info = f"📊 Vista filtrada para {user_rol}"
     else:
         if prov_sel != "TODOS":
             df_final = df_v_all[df_v_all['Proveedor'] == prov_sel].copy()
+            # Filtro para inventario si tiene la columna Proveedor
+            if not df_i_all.empty and 'Proveedor' in df_i_all.columns:
+                df_inv_final = df_i_all[df_i_all['Proveedor'] == prov_sel].copy()
+            else:
+                df_inv_final = df_i_all.copy()
             filtro_info = f"📊 Modo Auditoría: Proveedor {prov_sel}"
         else:
             df_final = df_v_all.copy()
+            df_inv_final = df_i_all.copy()
             filtro_info = "📊 Vista Global de Administrador"
 
     if df_final.empty:
@@ -450,7 +476,14 @@ def dashboard_proveedores(df_v_all, df_p, usuario_row):
     kpi_card(k3, metricas['clientes_unicos'], "Cobertura de Clientes", prefix="")
     kpi_card(k4, metricas['vendedores_activos'], "Fuerza de Ventas", prefix="")
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📈 Análisis Comercial", "📋 Sábana de Ventas", "📦 Rendimiento de Productos", "🏆 Ranking Vendedores"])
+    # AÑADIMOS LA 5TA PESTAÑA AL MENÚ
+    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        "📈 Análisis Comercial", 
+        "📋 Sábana de Ventas", 
+        "📦 Rendimiento de Productos", 
+        "🏆 Ranking Vendedores",
+        "📦 Inventario Actual"
+    ])
 
     with tab1:
         col_l, col_r = st.columns(2)
@@ -567,13 +600,50 @@ def dashboard_proveedores(df_v_all, df_p, usuario_row):
         else:
             st.info("Sin datos de ventas para generar el ranking.")
 
+    with tab5:
+        st.markdown("### 📦 Inventario Actual")
+        st.markdown("Disponibilidad de stock en bodega para tu portafolio de productos.")
+        
+        if not df_inv_final.empty:
+            # Seleccionar las columnas clave que el proveedor debe ver
+            columnas_inventario = [col for col in ['CODIGO', 'DESCRIPCION', 'MARCA', 'PROVEEDOR', 'CANTIDAD', 'STOCK', 'BODEGA'] if col in [c.upper() for c in df_inv_final.columns]]
+            
+            if columnas_inventario:
+                # Recuperar los nombres exactos de las columnas en el dataframe (respetando mayúsculas/minúsculas originales)
+                cols_reales = []
+                for c in columnas_inventario:
+                    for real_c in df_inv_final.columns:
+                        if real_c.upper() == c:
+                            cols_reales.append(real_c)
+                            break
+                df_mostrar_inv = df_inv_final[cols_reales]
+            else:
+                df_mostrar_inv = df_inv_final # Si no encuentra las columnas exactas, muestra todo
+
+            # Filtro rápido para que el proveedor busque un producto específico
+            busqueda_inv = st.text_input("🔍 Buscar producto en inventario:")
+            if busqueda_inv:
+                # Filtrar en todas las columnas como string
+                mask_inv = df_mostrar_inv.astype(str).apply(lambda x: x.str.contains(busqueda_inv, case=False)).any(axis=1)
+                df_mostrar_inv = df_mostrar_inv[mask_inv]
+
+            st.dataframe(
+                df_mostrar_inv,
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("Aún no hay datos de inventario disponibles o no existe la pestaña 'INVENTARIO' en tu archivo de Google Sheets.")
+
 def main():
     if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
     if not st.session_state['logged_in']:
         pantalla_login()
         return
 
-    try: df_v, df_p, _ = cargar_ventas_presupuesto()
+    try: 
+        # Ahora extraemos las 3 cosas: Ventas, Presupuesto e Inventario
+        df_v, df_p, df_i = cargar_ventas_presupuesto()
     except ValueError as e:
         st.error(str(e))
         st.stop()
@@ -582,7 +652,8 @@ def main():
         st.error("❌ Sin datos de ventas.")
         return
 
-    dashboard_proveedores(df_v, df_p, st.session_state.get('user_row', {}))
+    # Pasamos el inventario a la función principal del dashboard
+    dashboard_proveedores(df_v, df_p, df_i, st.session_state.get('user_row', {}))
 
 if __name__ == "__main__":
     main()
