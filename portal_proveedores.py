@@ -51,7 +51,7 @@ def descomponer_vendedor(texto):
     return codigo.upper(), norm_txt(nombre)
 
 def anonimizar_cliente(nombre):
-    """Convierte 'ISRAEL PAREDES' a 'ISRPAR' para proteger la cartera de clientes"""
+    """Convierte nombres reales a códigos para proteger la cartera de clientes"""
     if pd.isna(nombre) or str(nombre).strip() == "":
         return "DESC"
     partes = str(nombre).strip().split()
@@ -220,6 +220,7 @@ def cargar_ventas_presupuesto():
     def find_col(df, keyword):
         return next((c for c in df.columns if keyword in norm_txt(c)), None)
 
+    # Buscar todas las columnas necesarias para la sábana de ventas
     col_fecha = find_col(df_raw, 'FECHA')
     col_total = find_col(df_raw, 'TOTAL')
     col_vend = find_col(df_raw, 'VENDEDOR')
@@ -227,6 +228,14 @@ def cargar_ventas_presupuesto():
     col_marca = find_col(df_raw, 'MARCA')
     col_prov = find_col(df_raw, 'PROVEEDOR')
     col_desc = find_col(df_raw, 'DESCRIPCION')
+    
+    col_factura = find_col(df_raw, 'FACTURA')
+    col_ciudad = find_col(df_raw, 'CIUDAD')
+    col_ruta = find_col(df_raw, 'RUTA')
+    col_grupo = find_col(df_raw, 'GRUPO')
+    col_subgrupo = find_col(df_raw, 'SUBGRUPO')
+    col_codigo = find_col(df_raw, 'CODIGO')
+    col_cantidad = find_col(df_raw, 'CANTIDAD')
 
     if col_fecha is None or col_total is None:
         raise ValueError("❌ No se encontraron columnas FECHA o TOTAL en VENTAS")
@@ -236,13 +245,29 @@ def cargar_ventas_presupuesto():
 
     mask_ok = fecha_series.notna()
     df_v = df_raw[mask_ok].copy()
-    df_v['Fecha'] = fecha_series[mask_ok].values
+    
+    # Asignación de datos limpios
+    df_v['Fecha'] = fecha_series[mask_ok].dt.date # Convertir a fecha simple sin horas
     df_v['Total'] = total_series[mask_ok].values
     df_v['Vendedor'] = df_v[col_vend].astype(str) if col_vend else ''
     df_v['Cliente'] = df_v[col_cli].astype(str) if col_cli else ''
     df_v['Marca'] = df_v[col_marca].astype(str) if col_marca else ''
     df_v['Proveedor'] = df_v[col_prov].astype(str) if col_prov else ''
     df_v['Descripcion'] = df_v[col_desc].astype(str) if col_desc else 'Sin Detalle'
+    
+    # Nuevas columnas para la sábana
+    df_v['Factura'] = df_v[col_factura].astype(str) if col_factura else ''
+    df_v['Ciudad'] = df_v[col_ciudad].astype(str) if col_ciudad else ''
+    df_v['Ruta'] = df_v[col_ruta].astype(str) if col_ruta else ''
+    df_v['Grupo'] = df_v[col_grupo].astype(str) if col_grupo else ''
+    df_v['SubGrupo'] = df_v[col_subgrupo].astype(str) if col_subgrupo else ''
+    df_v['Codigo_Prod'] = df_v[col_codigo].astype(str) if col_codigo else ''
+    
+    # Cantidad (numérico)
+    if col_cantidad:
+        df_v['Cantidad'] = pd.to_numeric(df_raw[col_cantidad], errors='coerce').fillna(0)
+    else:
+        df_v['Cantidad'] = 0
 
     try:
         ws_p = sh.worksheet("PRESUPUESTO")
@@ -356,7 +381,12 @@ def dashboard_proveedores(df_v_all, df_p, usuario_row):
     df_final = filtrar_datos_proveedor(df_v_all, usuario_row) if is_proveedor_user else df_v_all.copy()
     filtro_info = f"📊 Vista filtrada para {user_rol}" if is_proveedor_user else f"📊 Vista completa de administrador"
 
-    df_final['Mes_N'] = df_final['Fecha'].dt.strftime('%B %Y')
+    # Validar que df_final tenga datos para evitar errores de dt.strftime
+    if df_final.empty:
+        st.warning("⚠️ No se encontraron datos para este usuario o zona.")
+        return
+
+    df_final['Mes_N'] = pd.to_datetime(df_final['Fecha']).dt.strftime('%B %Y')
     meses = sorted(df_final['Mes_N'].unique().tolist(), reverse=True)
     
     col_mes, col_info = st.columns([1, 2])
@@ -381,7 +411,7 @@ def dashboard_proveedores(df_v_all, df_p, usuario_row):
     kpi_card(k3, metricas['clientes_unicos'], "Cobertura de Clientes", prefix="")
     kpi_card(k4, metricas['vendedores_activos'], "Fuerza de Ventas", prefix="")
 
-    tab1, tab2, tab3 = st.tabs(["📈 Análisis Comercial", "👥 Inteligencia de Ventas", "📦 Rendimiento de Productos"])
+    tab1, tab2, tab3 = st.tabs(["📈 Análisis Comercial", "📋 Sábana de Ventas", "📦 Rendimiento de Productos"])
 
     with tab1:
         col_l, col_r = st.columns(2)
@@ -393,43 +423,42 @@ def dashboard_proveedores(df_v_all, df_p, usuario_row):
             st.markdown("#### 🚀 Tendencia de Demanda")
             if not df_mes.empty:
                 try:
-                    tendencia = df_mes.groupby(df_mes['Fecha'].dt.date)['Total'].sum()
+                    tendencia = df_mes.groupby(pd.to_datetime(df_mes['Fecha']).dt.date)['Total'].sum()
                     st.line_chart(tendencia.tail(15))
                 except: st.info("Sin datos para tendencia")
 
     with tab2:
-        st.markdown("### 🏆 Rendimiento y Alcance por Vendedor")
+        st.markdown("### 📋 Sábana de Ventas Detallada")
         if not df_mes.empty:
-            df_mes['Cod_Cliente'] = df_mes['Cliente'].apply(anonimizar_cliente)
+            df_detalle = df_mes.copy()
             
-            resumen_vend = df_mes.groupby('Vendedor').agg(
-                Venta_Total=('Total', 'sum'),
-                Clientes_Impactados=('Cod_Cliente', 'nunique'),
-                Total_Transacciones=('Total', 'count')
-            ).reset_index()
-
-            top_clientes = df_mes.groupby(['Vendedor', 'Cod_Cliente'])['Total'].sum().reset_index()
-            idx_cli = top_clientes.groupby('Vendedor')['Total'].idxmax()
-            top_cli_df = top_clientes.loc[idx_cli, ['Vendedor', 'Cod_Cliente']]
-            top_cli_df.rename(columns={'Cod_Cliente': 'Mejor Cliente (Cód)'}, inplace=True)
-
-            if 'Descripcion' in df_mes.columns:
-                top_prods = df_mes.groupby(['Vendedor', 'Descripcion'])['Total'].sum().reset_index()
-                idx_prod = top_prods.groupby('Vendedor')['Total'].idxmax()
-                top_prods_df = top_prods.loc[idx_prod, ['Vendedor', 'Descripcion']]
-                top_prods_df.rename(columns={'Descripcion': 'Producto de Mayor Impacto'}, inplace=True)
-            else: top_prods_df = pd.DataFrame(columns=['Vendedor', 'Producto de Mayor Impacto'])
-
-            df_final_vend = resumen_vend.merge(top_cli_df, on='Vendedor', how='left')
-            if not top_prods_df.empty: df_final_vend = df_final_vend.merge(top_prods_df, on='Vendedor', how='left')
-
-            df_final_vend = df_final_vend.sort_values('Venta_Total', ascending=False)
+            # Anonimizar al cliente
+            df_detalle['Cliente_Codificado'] = df_detalle['Cliente'].apply(anonimizar_cliente)
             
+            # Definir qué columnas mostrar en la sábana (en un orden lógico)
+            columnas_sabana = [
+                'Fecha', 'Factura', 'Ciudad', 'Ruta', 'Vendedor', 
+                'Cliente_Codificado', 'Grupo', 'SubGrupo', 'Marca', 
+                'Codigo_Prod', 'Descripcion', 'Cantidad', 'Total'
+            ]
+            
+            # Asegurarse de que las columnas existan en el DataFrame antes de mostrarlas
+            columnas_finales = [col for col in columnas_sabana if col in df_detalle.columns]
+            
+            # Crear el DataFrame final a mostrar
+            df_mostrar = df_detalle[columnas_finales].rename(columns={'Cliente_Codificado': 'Cód. Cliente'})
+            
+            # Mostrar la tabla en Streamlit
             st.dataframe(
-                df_final_vend.style.format({'Venta_Total': '${:,.2f}'}),
-                use_container_width=True, hide_index=True
+                df_mostrar.style.format({
+                    'Total': '${:,.2f}',
+                    'Cantidad': '{:,.0f}'
+                }),
+                use_container_width=True, 
+                hide_index=True
             )
-        else: st.info("Sin datos de vendedores para este período")
+        else: 
+            st.info("Sin datos de ventas para este período")
 
     with tab3:
         st.markdown("### 📦 Detalle Analítico de Productos")
