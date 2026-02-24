@@ -414,8 +414,7 @@ def dashboard_proveedores(df_v_all, df_p, usuario_row):
     kpi_card(k3, metricas['clientes_unicos'], "Cobertura de Clientes", prefix="")
     kpi_card(k4, metricas['vendedores_activos'], "Fuerza de Ventas", prefix="")
 
-    tab1, tab2, tab3 = st.tabs(["📈 Análisis Comercial", "📋 Sábana de Ventas", "📦 Rendimiento de Productos"])
-
+tab1, tab2, tab3, tab4 = st.tabs(["📈 Análisis Comercial", "📋 Sábana de Ventas", "📦 Rendimiento de Productos", "🏆 Ranking Vendedores"])
     with tab1:
         col_l, col_r = st.columns(2)
         with col_l:
@@ -479,6 +478,63 @@ def dashboard_proveedores(df_v_all, df_p, usuario_row):
             with c3: st.metric("💰 Promedio por Línea", f"${resumen['Volumen Negocio'].mean():,.2f}")
             
             st.dataframe(resumen, use_container_width=True)
+      with tab4:
+        st.markdown("### 🏆 Top Vendedores del Mes")
+        st.markdown("Rendimiento de la fuerza de ventas basado en el volumen de facturación.")
+        
+        if not df_mes.empty:
+            # 1. Agrupar y ordenar ventas por vendedor
+            ranking_df = df_mes.groupby('Vendedor')['Total'].sum().reset_index()
+            ranking_df = ranking_df.sort_values('Total', ascending=False).reset_index(drop=True)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            # 2. Generar tarjetas visuales profesionales
+            for index, row in ranking_df.iterrows():
+                vendedor = row['Vendedor']
+                total = row['Total']
+                
+                # Lógica de medallas y colores corporativos
+                if index == 0:
+                    medalla = "🥇"
+                    color_borde = "#F59E0B" # Dorado
+                elif index == 1:
+                    medalla = "🥈"
+                    color_borde = "#94A3B8" # Plateado
+                elif index == 2:
+                    medalla = "🥉"
+                    color_borde = "#B45309" # Bronce
+                else:
+                    medalla = f"#{index + 1}"
+                    color_borde = "#1E3A8A" # Azul corporativo normal
+                
+                # Extraer solo el nombre (Quitar el "PDV01 - ")
+                nombre_limpio = vendedor.split(' - ')[1] if ' - ' in vendedor else vendedor
+                
+                # 3. Diseño de la tarjeta HTML/CSS
+                st.markdown(f"""
+                <div style="
+                    background: linear-gradient(145deg, #111827, #1A2540);
+                    border-left: 5px solid {color_borde};
+                    border-radius: 8px;
+                    padding: 15px 20px;
+                    margin-bottom: 10px;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+                ">
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <span style="font-size: 1.5rem; font-weight: bold; width: 30px; text-align: center; color: {color_borde};">{medalla}</span>
+                        <span style="font-size: 1.1rem; font-weight: 600; color: #E2E8F0; text-transform: uppercase;">{nombre_limpio}</span>
+                    </div>
+                    <div style="font-size: 1.3rem; font-weight: 800; color: #3B82F6;">
+                        ${total:,.2f}
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.info("Sin datos de ventas para generar el ranking.")      
 
 def main():
     if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
