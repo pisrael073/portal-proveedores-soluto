@@ -111,14 +111,12 @@ def filtrar_datos_proveedor(df_datos, user_info):
     if not filtro:
         filtro = user_info.get('_nombre_orig', '').strip()
 
-    # Intenta buscar en Proveedor o Marca (dependiendo de cómo se llamen las columnas en el df)
     mask = pd.Series([False] * len(df_datos))
     
     if 'Proveedor' in df_datos.columns:
         mask = mask | df_datos['Proveedor'].str.contains(filtro, case=False, na=False)
     if 'Marca' in df_datos.columns:
         mask = mask | df_datos['Marca'].str.contains(filtro, case=False, na=False)
-    # Soporte por si en inventario la columna está en mayúsculas
     if 'PROVEEDOR' in df_datos.columns:
         mask = mask | df_datos['PROVEEDOR'].astype(str).str.contains(filtro, case=False, na=False)
     if 'MARCA' in df_datos.columns:
@@ -310,7 +308,7 @@ def cargar_ventas_presupuesto():
     except:
         df_p = pd.DataFrame()
 
-    # 3. CARGAR INVENTARIO (Nuevo)
+    # 3. CARGAR INVENTARIO
     try:
         ws_i = sh.worksheet("INVENTARIO")
         df_i = pd.DataFrame(ws_i.get_all_records())
@@ -435,7 +433,6 @@ def dashboard_proveedores(df_v_all, df_p, df_i_all, usuario_row):
     else:
         if prov_sel != "TODOS":
             df_final = df_v_all[df_v_all['Proveedor'] == prov_sel].copy()
-            # Filtro para inventario si tiene la columna Proveedor
             if not df_i_all.empty and 'Proveedor' in df_i_all.columns:
                 df_inv_final = df_i_all[df_i_all['Proveedor'] == prov_sel].copy()
             else:
@@ -476,7 +473,6 @@ def dashboard_proveedores(df_v_all, df_p, df_i_all, usuario_row):
     kpi_card(k3, metricas['clientes_unicos'], "Cobertura de Clientes", prefix="")
     kpi_card(k4, metricas['vendedores_activos'], "Fuerza de Ventas", prefix="")
 
-    # AÑADIMOS LA 5TA PESTAÑA AL MENÚ
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📈 Análisis Comercial", 
         "📋 Sábana de Ventas", 
@@ -602,28 +598,26 @@ def dashboard_proveedores(df_v_all, df_p, df_i_all, usuario_row):
 
     with tab5:
         st.markdown("### 📦 Inventario Actual")
-        st.markdown("Disponibilidad de stock en bodega para tu portafolio de productos.")
+        st.markdown("Disponibilidad de stock detallado (Saldos y Cajas) para tu portafolio.")
         
         if not df_inv_final.empty:
-            # Seleccionar las columnas clave que el proveedor debe ver
-            columnas_inventario = [col for col in ['CODIGO', 'DESCRIPCION', 'MARCA', 'PROVEEDOR', 'CANTIDAD', 'STOCK', 'BODEGA'] if col in [c.upper() for c in df_inv_final.columns]]
+            # Lista de columnas exactas que pasaste
+            cols_base = ['Proveedor', 'Marca', 'Group', 'Sub Grupo', 'Codigo', 'Descripcion', 
+                         'Costo', 'Iva', 'PVP', '% Rent', 'Unid.', 'Cant.', 'Und. X Cja', 
+                         'Cant. Emb.', 'Uni. Emb.', 'Total']
             
-            if columnas_inventario:
-                # Recuperar los nombres exactos de las columnas en el dataframe (respetando mayúsculas/minúsculas originales)
-                cols_reales = []
-                for c in columnas_inventario:
-                    for real_c in df_inv_final.columns:
-                        if real_c.upper() == c:
-                            cols_reales.append(real_c)
-                            break
-                df_mostrar_inv = df_inv_final[cols_reales]
-            else:
-                df_mostrar_inv = df_inv_final # Si no encuentra las columnas exactas, muestra todo
+            # Filtrar solo las que realmente existan en el DataFrame cargado
+            cols_reales = [c for c in df_inv_final.columns if c in cols_base]
+            
+            # Prevención de errores: Si por nombres distintos no encuentra nada, trae todo
+            if not cols_reales:
+                cols_reales = df_inv_final.columns.tolist()
 
-            # Filtro rápido para que el proveedor busque un producto específico
-            busqueda_inv = st.text_input("🔍 Buscar producto en inventario:")
+            df_mostrar_inv = df_inv_final[cols_reales].copy()
+
+            # Filtro rápido de búsqueda
+            busqueda_inv = st.text_input("🔍 Buscar producto en inventario (Ej. COLADITA):")
             if busqueda_inv:
-                # Filtrar en todas las columnas como string
                 mask_inv = df_mostrar_inv.astype(str).apply(lambda x: x.str.contains(busqueda_inv, case=False)).any(axis=1)
                 df_mostrar_inv = df_mostrar_inv[mask_inv]
 
@@ -633,7 +627,7 @@ def dashboard_proveedores(df_v_all, df_p, df_i_all, usuario_row):
                 hide_index=True
             )
         else:
-            st.info("Aún no hay datos de inventario disponibles o no existe la pestaña 'INVENTARIO' en tu archivo de Google Sheets.")
+            st.info("Aún no hay datos de inventario disponibles o no existe la pestaña 'INVENTARIO' en tu matriz.")
 
 def main():
     if 'logged_in' not in st.session_state: st.session_state['logged_in'] = False
@@ -642,7 +636,6 @@ def main():
         return
 
     try: 
-        # Ahora extraemos las 3 cosas: Ventas, Presupuesto e Inventario
         df_v, df_p, df_i = cargar_ventas_presupuesto()
     except ValueError as e:
         st.error(str(e))
@@ -652,7 +645,6 @@ def main():
         st.error("❌ Sin datos de ventas.")
         return
 
-    # Pasamos el inventario a la función principal del dashboard
     dashboard_proveedores(df_v, df_p, df_i, st.session_state.get('user_row', {}))
 
 if __name__ == "__main__":
