@@ -1,13 +1,26 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from datetime import datetime
 import calendar
 import re
 import unicodedata
+
+# Importaciones opcionales con fallbacks
+try:
+    import plotly.graph_objects as go
+    import plotly.express as px
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+    st.warning("⚠️ Plotly no disponible - gráficos deshabilitados")
+
+try:
+    import numpy as np
+    NUMPY_AVAILABLE = True
+except ImportError:
+    NUMPY_AVAILABLE = False
 
 # ══════════════════════════════════════════════════════════════════
 #  CONFIGURACIÓN
@@ -478,7 +491,7 @@ def dashboard_principal():
         
         with col_left:
             # Ventas por marca
-            if not df_v_filtrado.empty:
+            if not df_v_filtrado.empty and PLOTLY_AVAILABLE:
                 ventas_marca = df_v_filtrado[df_v_filtrado['Fecha'].dt.strftime('%B %Y') == mes_seleccionado].groupby('Marca')['Total'].sum().nlargest(8)
                 
                 fig_marca = go.Figure(data=[
@@ -490,10 +503,18 @@ def dashboard_principal():
                     height=400
                 )
                 st.plotly_chart(fig_marca, use_container_width=True)
+            elif not df_v_filtrado.empty:
+                # Fallback sin Plotly
+                st.markdown("### 🏷️ Ventas por Marca")
+                ventas_marca = df_v_filtrado[df_v_filtrado['Fecha'].dt.strftime('%B %Y') == mes_seleccionado].groupby('Marca')['Total'].sum().nlargest(8)
+                for marca, valor in ventas_marca.items():
+                    st.write(f"**{marca}:** ${valor:,.0f}")
+            else:
+                st.info("📝 Sin datos de ventas para mostrar")
         
         with col_right:
             # Tendencia mensual
-            if len(df_v_filtrado) > 0:
+            if len(df_v_filtrado) > 0 and PLOTLY_AVAILABLE:
                 tendencia = df_v_filtrado.groupby(df_v_filtrado['Fecha'].dt.to_period('M'))['Total'].sum().reset_index()
                 tendencia['Fecha'] = tendencia['Fecha'].dt.strftime('%B %Y')
                 
@@ -508,6 +529,13 @@ def dashboard_principal():
                     yaxis_title="Ventas ($)"
                 )
                 st.plotly_chart(fig_trend, use_container_width=True)
+            elif len(df_v_filtrado) > 0:
+                # Fallback sin Plotly
+                st.markdown("### 📈 Tendencia de Ventas")
+                tendencia = df_v_filtrado.groupby(df_v_filtrado['Fecha'].dt.to_period('M'))['Total'].sum()
+                st.line_chart(tendencia)
+            else:
+                st.info("📝 Sin datos para mostrar tendencia")
     
     with tab2:
         # Top vendedores
