@@ -36,280 +36,244 @@ logger = logging.getLogger(__name__)
 # ══════════════════════════════════════════════════════════════════
 
 CUSTOM_CSS = """
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap');
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body, [class*="css"] {
     font-family: 'Inter', sans-serif;
-    background: #06101E;
-    color: #E4ECF7;
-    letter-spacing: 0.3px;
+    background: #111111 !important;
+    color: #E8EDF2;
 }
 
 header, footer, #MainMenu { visibility: hidden; }
 
 .block-container {
-    padding: 1.2rem 2rem !important;
-    max-width: 1400px !important;
+    padding: 1rem 1.8rem !important;
+    max-width: 1440px !important;
+    background: #111111 !important;
 }
 
 /* ── SIDEBAR ─────────────────────────────── */
 [data-testid="stSidebar"] {
-    background: #0A1829 !important;
-    border-right: 1px solid rgba(0, 168, 255, 0.15) !important;
+    background: #161616 !important;
+    border-right: 1px solid #2A2A2A !important;
 }
-[data-testid="stSidebar"] * { color: #C8D8EE !important; }
-[data-testid="stSidebar"] .stSelectbox label,
-[data-testid="stSidebar"] .stMarkdown p { color: #A0B4CC !important; font-size: 0.82rem !important; }
-[data-testid="stSidebar"] hr { border-color: rgba(0,168,255,0.15) !important; }
+[data-testid="stSidebar"] * { color: #C8D4DF !important; }
+[data-testid="stSidebar"] hr { border-color: #2A2A2A !important; }
+[data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] {
+    background: #1E1E1E !important;
+    border: 1px solid #333 !important;
+}
 
 /* ── TOP BAR ─────────────────────────────── */
 .top-bar {
-    background: linear-gradient(135deg, #0C1E35 0%, #0F2545 100%);
-    border: 1px solid rgba(0, 168, 255, 0.25);
-    border-radius: 14px;
-    padding: 16px 28px;
-    margin-bottom: 22px;
+    background: #1A1A1A;
+    border: 1px solid #2C2C2C;
+    border-left: 4px solid #00BCD4;
+    border-radius: 10px;
+    padding: 14px 24px;
+    margin-bottom: 20px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    box-shadow: 0 4px 24px rgba(0, 100, 200, 0.18);
-    animation: fadeIn 0.4s ease-out;
-}
-
-@keyframes fadeIn {
-    from { opacity: 0; transform: translateY(-10px); }
-    to   { opacity: 1; transform: translateY(0); }
 }
 
 .top-bar-title {
-    font-size: 1.3rem;
+    font-size: 1.25rem;
     font-weight: 800;
-    color: #F0F8FF;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    letter-spacing: 0.5px;
+    color: #FFFFFF;
+    letter-spacing: 0.3px;
 }
 
-.top-bar-accent {
-    color: #00A8FF;
-}
+.top-bar-accent { color: #00BCD4; }
 
 .top-bar-user {
-    font-size: 0.82rem;
-    color: #90C4E8;
+    font-size: 0.8rem;
+    color: #A0B4C8;
     font-weight: 600;
     text-align: right;
-    line-height: 1.7;
+    line-height: 1.6;
 }
 
-.top-bar-user-role {
-    font-size: 0.72rem;
-    color: #5BA8D4;
-}
+.top-bar-user-role { font-size: 0.7rem; color: #607080; }
 
-/* ── KPI CARDS ───────────────────────────── */
+/* ── KPI CARDS — colored solid (igual que monitor-pdv) ─── */
 .kpi-card {
-    background: linear-gradient(145deg, #0D1F36 0%, #112844 100%);
-    border: 1px solid rgba(0, 168, 255, 0.18);
-    border-top: 3px solid #00A8FF;
     border-radius: 12px;
-    padding: 22px 18px;
+    padding: 26px 20px 22px;
     text-align: center;
+    margin-bottom: 10px;
     position: relative;
     overflow: hidden;
-    margin-bottom: 12px;
-    transition: all 0.28s ease;
-    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    box-shadow: 0 4px 18px rgba(0,0,0,0.45);
 }
 
 .kpi-card:hover {
-    border-top-color: #FF6B35;
-    box-shadow: 0 8px 28px rgba(0, 168, 255, 0.14);
     transform: translateY(-3px);
+    box-shadow: 0 8px 28px rgba(0,0,0,0.55);
 }
 
 .kpi-val {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 2rem;
+    font-size: 2.6rem;
     font-weight: 700;
-    color: #00A8FF;
+    color: #FFFFFF;
     line-height: 1;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
     letter-spacing: -1px;
 }
 
 .kpi-lbl {
-    font-size: 0.68rem;
-    color: #6A8FAF;
+    font-size: 0.66rem;
+    color: rgba(255,255,255,0.75);
     text-transform: uppercase;
     letter-spacing: 1.8px;
     font-weight: 700;
 }
 
+.kpi-sub {
+    font-size: 0.7rem;
+    color: rgba(255,255,255,0.55);
+    margin-top: 5px;
+}
+
 /* ── BADGES ──────────────────────────────── */
 .admin-badge {
-    background: linear-gradient(135deg, #004E9A, #0077CC);
-    border: 1px solid rgba(0, 168, 255, 0.4);
-    border-radius: 6px;
-    padding: 3px 11px;
-    font-size: 0.62rem;
+    background: #1565C0;
+    border-radius: 5px;
+    padding: 3px 10px;
+    font-size: 0.6rem;
     font-weight: 800;
-    color: #E0F2FF;
+    color: #E3F2FD;
     text-transform: uppercase;
     letter-spacing: 1.5px;
     display: inline-block;
     margin-left: 10px;
-    box-shadow: 0 3px 10px rgba(0, 100, 200, 0.35);
-    animation: pulse 3s infinite;
 }
 
 .proveedor-badge {
-    background: linear-gradient(135deg, #7A3500, #FF6B35);
-    border: 1px solid rgba(255, 107, 53, 0.4);
-    border-radius: 6px;
-    padding: 3px 11px;
-    font-size: 0.62rem;
+    background: #E65100;
+    border-radius: 5px;
+    padding: 3px 10px;
+    font-size: 0.6rem;
     font-weight: 800;
-    color: #FFF0EA;
+    color: #FFF3E0;
     text-transform: uppercase;
     letter-spacing: 1.5px;
     display: inline-block;
     margin-left: 10px;
-    box-shadow: 0 3px 10px rgba(255, 107, 53, 0.3);
 }
 
-@keyframes pulse {
-    0%, 100% { opacity: 1; box-shadow: 0 3px 10px rgba(0,100,200,0.35); }
-    50%       { opacity: 0.85; box-shadow: 0 3px 16px rgba(0,168,255,0.55); }
-}
-
-/* ── SECTION TITLES ──────────────────────── */
+/* ── SECTION TITLES — estilo monitor-pdv ─── */
 .section-title {
-    font-size: 0.92rem;
+    font-size: 0.78rem;
     font-weight: 800;
-    color: #90C4E8;
-    margin: 26px 0 14px;
+    color: #00BCD4;
+    margin: 24px 0 12px;
     text-transform: uppercase;
-    letter-spacing: 2px;
-    position: relative;
-    padding-bottom: 9px;
+    letter-spacing: 2.5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
-.section-title::after {
-    content: '';
-    position: absolute;
-    bottom: 0; left: 0;
-    width: 48px; height: 2px;
-    background: linear-gradient(90deg, #00A8FF, #FF6B35, transparent);
-    border-radius: 2px;
-}
-
-/* ── FILTRO BOX ADMIN ────────────────────── */
-.filter-box {
-    background: rgba(0, 168, 255, 0.06);
-    border: 1px solid rgba(0, 168, 255, 0.18);
-    border-radius: 10px;
-    padding: 12px 14px;
-    margin-bottom: 10px;
-}
-
+/* ── FILTRO LABEL SIDEBAR ────────────────── */
 .filter-label {
-    font-size: 0.7rem;
-    color: #5BA8D4;
+    font-size: 0.68rem;
+    color: #00BCD4;
     text-transform: uppercase;
     letter-spacing: 1.5px;
     font-weight: 700;
-    margin-bottom: 4px;
+    margin-bottom: 3px;
 }
 
 /* ── BOTONES ─────────────────────────────── */
 .stButton > button {
-    background: linear-gradient(135deg, #004E9A, #0077CC) !important;
-    color: #E0F2FF !important;
-    border: 1px solid rgba(0, 168, 255, 0.3) !important;
-    border-radius: 9px !important;
+    background: #1565C0 !important;
+    color: #E3F2FD !important;
+    border: none !important;
+    border-radius: 8px !important;
     font-weight: 700 !important;
-    padding: 11px 22px !important;
-    font-size: 0.9rem !important;
-    letter-spacing: 0.8px !important;
-    transition: all 0.25s ease !important;
+    padding: 10px 20px !important;
+    font-size: 0.88rem !important;
+    letter-spacing: 0.5px !important;
+    transition: background 0.2s ease !important;
     text-transform: uppercase !important;
-    box-shadow: 0 4px 14px rgba(0, 120, 200, 0.3) !important;
 }
 
 .stButton > button:hover {
-    background: linear-gradient(135deg, #003A75, #005FA3) !important;
-    box-shadow: 0 6px 20px rgba(0, 168, 255, 0.45) !important;
-    transform: translateY(-2px) !important;
+    background: #0D47A1 !important;
 }
 
-/* ── TABS ────────────────────────────────── */
+/* ── TABS ─────────────────────────────────── */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 6px;
-    background: rgba(10, 24, 41, 0.7);
-    padding: 7px;
-    border-radius: 11px;
-    border: 1px solid rgba(0, 168, 255, 0.15);
+    gap: 4px;
+    background: #1A1A1A;
+    padding: 6px;
+    border-radius: 10px;
+    border: 1px solid #2A2A2A;
 }
 
 .stTabs [data-baseweb="tab"] {
     background: transparent;
     border-radius: 7px;
-    color: #6A8FAF;
+    color: #607080;
     font-weight: 600;
-    font-size: 0.87rem;
-    padding: 9px 18px;
-    transition: all 0.25s ease;
+    font-size: 0.84rem;
+    padding: 8px 16px;
+    transition: all 0.2s ease;
 }
 
 .stTabs [data-baseweb="tab"][aria-selected="true"] {
-    background: linear-gradient(135deg, #004E9A, #0077CC);
-    color: #E0F2FF;
-    box-shadow: 0 3px 10px rgba(0, 100, 200, 0.35);
+    background: #1E3A5F;
+    color: #90CAF9;
+    border-bottom: 2px solid #00BCD4;
 }
 
 /* ── DATAFRAME ───────────────────────────── */
-.stDataFrame { border-radius: 11px !important; overflow: hidden !important; }
-.stDataFrame tbody tr { border-bottom: 1px solid rgba(0, 100, 180, 0.18) !important; }
-.stDataFrame tbody tr:hover { background-color: rgba(0, 168, 255, 0.07) !important; }
+.stDataFrame { border-radius: 10px !important; overflow: hidden !important; }
+.stDataFrame tbody tr { border-bottom: 1px solid #222 !important; }
+.stDataFrame tbody tr:hover { background-color: rgba(0,188,212,0.06) !important; }
 
 /* ── ALERTS ──────────────────────────────── */
-.stAlert { border-radius: 10px !important; border-left: 4px solid !important; }
+.stAlert { border-radius: 8px !important; border-left: 3px solid !important; }
 
 /* ── INPUTS ──────────────────────────────── */
 .stSelectbox [data-baseweb="select"] {
-    background: rgba(10, 24, 41, 0.7) !important;
-    border: 1px solid rgba(0, 168, 255, 0.25) !important;
-    border-radius: 9px !important;
+    background: #1A1A1A !important;
+    border: 1px solid #2E2E2E !important;
+    border-radius: 8px !important;
+    color: #E8EDF2 !important;
+}
+
+.stTextInput input {
+    background: #1A1A1A !important;
+    border: 1px solid #2E2E2E !important;
+    border-radius: 8px !important;
+    color: #E8EDF2 !important;
 }
 
 /* ── RANKING CARDS ───────────────────────── */
 .ranking-card {
-    background: linear-gradient(145deg, #0A1829, #0F2240);
+    background: #1A1A1A;
     border-left: 4px solid;
-    border-radius: 9px;
-    padding: 14px 20px;
-    margin-bottom: 9px;
+    border-radius: 8px;
+    padding: 13px 18px;
+    margin-bottom: 8px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-    transition: all 0.25s ease;
+    transition: transform 0.2s ease;
 }
 
-.ranking-card:hover {
-    transform: translateX(4px);
-    box-shadow: 0 4px 14px rgba(0, 100, 200, 0.25);
-}
+.ranking-card:hover { transform: translateX(3px); }
 
 /* ── RESPONSIVE ──────────────────────────── */
 @media (max-width: 768px) {
-    .top-bar { flex-direction: column; gap: 10px; text-align: center; }
-    .kpi-val  { font-size: 1.5rem; }
-    .section-title { font-size: 0.82rem; }
+    .top-bar { flex-direction: column; gap: 8px; text-align: center; }
+    .kpi-val  { font-size: 1.8rem; }
 }
 """
 
@@ -727,13 +691,15 @@ def pantalla_login():
 #  FUNCIONES DE UI
 # ══════════════════════════════════════════════════════════════════
 
-def kpi_card(col, valor, label, sub="", prefix="$", suffix=""):
-    """Renderiza una tarjeta KPI"""
+def kpi_card(col, valor, label, sub="", prefix="$", suffix="", color="#2E7D32"):
+    """Renderiza tarjeta KPI con fondo de color sólido (estilo monitor-pdv)"""
     val_fmt = (f"{prefix}{valor:,.0f}{suffix}" if isinstance(valor, (int, float)) else str(valor))
+    sub_html = f"<div class='kpi-sub'>{sub}</div>" if sub else ""
     col.markdown(
-        f"<div class='kpi-card'>"
+        f"<div class='kpi-card' style='background:{color};'>"
         f"<div class='kpi-val'>{val_fmt}</div>"
         f"<div class='kpi-lbl'>{label}</div>"
+        f"{sub_html}"
         f"</div>",
         unsafe_allow_html=True
     )
@@ -863,12 +829,15 @@ def dashboard_proveedores(df_v_all, df_p, df_i_all, usuario_row):
 
     metricas = calcular_metricas_proveedor(df_mes, m_sel, usuario_row)
 
-    st.markdown(f"<div class='section-title'>📊 {m_sel} — Análisis Integral</div>", unsafe_allow_html=True)
+    crecimiento = metricas.get('crecimiento', 0)
+    crec_txt = f"{'▲' if crecimiento >= 0 else '▼'} {abs(crecimiento):.1f}% vs mes ant." if crecimiento != 0 else ""
+
+    st.markdown(f"<div class='section-title'>📊 {_html.escape(m_sel)} — ANÁLISIS INTEGRAL</div>", unsafe_allow_html=True)
     k1, k2, k3, k4 = st.columns(4)
-    kpi_card(k1, metricas['total_ventas'], "Ventas Totales")
-    kpi_card(k2, metricas['total_facturas'], "Facturas Emitidas", prefix="")
-    kpi_card(k3, metricas['clientes_unicos'], "Cobertura de Clientes", prefix="")
-    kpi_card(k4, metricas['vendedores_activos'], "Fuerza de Ventas", prefix="")
+    kpi_card(k1, metricas['total_ventas'],      "Ventas Totales",        sub=crec_txt,           color="#2E7D32")
+    kpi_card(k2, metricas['total_facturas'],    "Facturas Emitidas",     prefix="",              color="#1565C0")
+    kpi_card(k3, metricas['clientes_unicos'],   "Clientes Alcanzados",   prefix="",              color="#00695C")
+    kpi_card(k4, metricas['vendedores_activos'],"Vendedores Activos",    prefix="",              color="#E65100")
 
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📈 Análisis Comercial", 
@@ -958,38 +927,32 @@ def dashboard_proveedores(df_v_all, df_p, df_i_all, usuario_row):
                 total = row['Total']
                 
                 if index == 0:
-                    medalla = "🥇"
-                    color_borde = "#F59E0B"
+                    medalla = "🥇"; color_borde = "#F9A825"; bg_card = "#1A1500"
                 elif index == 1:
-                    medalla = "🥈"
-                    color_borde = "#94A3B8"
+                    medalla = "🥈"; color_borde = "#90A4AE"; bg_card = "#141A1E"
                 elif index == 2:
-                    medalla = "🥉"
-                    color_borde = "#B45309"
+                    medalla = "🥉"; color_borde = "#A1631A"; bg_card = "#1A1208"
                 else:
-                    medalla = f"#{index + 1}"
-                    color_borde = "#1E3A8A"
-                
+                    medalla = f"#{index + 1}"; color_borde = "#1565C0"; bg_card = "#141414"
+
                 nombre_limpio = _html.escape(vendedor.split(' - ')[1] if ' - ' in vendedor else vendedor)
+                max_total = ranking_df['Total'].max()
+                pct = int(total / max_total * 100) if max_total > 0 else 0
 
                 st.markdown(f"""
-                <div style="
-                    background: linear-gradient(145deg, #0A1829, #0F2240);
-                    border-left: 4px solid {color_borde};
-                    border-radius: 9px;
-                    padding: 14px 20px;
-                    margin-bottom: 9px;
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: center;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
-                    transition: transform 0.2s ease;
-                ">
-                    <div style="display: flex; align-items: center; gap: 14px;">
-                        <span style="font-size: 1.4rem; font-weight: bold; width: 28px; text-align: center; color: {color_borde};">{medalla}</span>
-                        <span style="font-size: 1rem; font-weight: 700; color: #D0E8FF; text-transform: uppercase; letter-spacing: 0.5px;">{nombre_limpio}</span>
+                <div style="background:{bg_card};border-left:4px solid {color_borde};border-radius:8px;
+                    padding:13px 18px;margin-bottom:8px;display:flex;justify-content:space-between;
+                    align-items:center;">
+                    <div style="display:flex;align-items:center;gap:12px;flex:1">
+                        <span style="font-size:1.3rem;width:26px;text-align:center;color:{color_borde};">{medalla}</span>
+                        <div style="flex:1">
+                            <div style="font-size:0.9rem;font-weight:700;color:#E8EDF2;text-transform:uppercase;letter-spacing:0.5px;">{nombre_limpio}</div>
+                            <div style="background:#222;border-radius:3px;height:4px;margin-top:5px;width:100%">
+                                <div style="background:{color_borde};width:{pct}%;height:4px;border-radius:3px;"></div>
+                            </div>
+                        </div>
                     </div>
-                    <div style="font-size: 1.2rem; font-weight: 800; color: #00A8FF; font-family: 'JetBrains Mono', monospace;">
+                    <div style="font-size:1.1rem;font-weight:800;color:#00BCD4;font-family:'JetBrains Mono',monospace;margin-left:16px;">
                         ${total:,.2f}
                     </div>
                 </div>
