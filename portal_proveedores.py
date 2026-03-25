@@ -736,45 +736,51 @@ def dashboard_proveedores(df_v_all, df_p, df_i_all, usuario_row):
     vend_sel  = "TODOS"
     zona_sel  = "TODAS"
 
+    # ── Sidebar: solo info de usuario + logout ────────────
     with st.sidebar:
-        st.markdown(f"**👤 {user_nombre}**")
-        st.markdown(f"**🎭 Rol:** {user_rol}")
-        st.markdown(f"**📍 Zona:** {user_zona or '—'}")
-
+        st.markdown(f"**👤 {_html.escape(user_nombre)}**")
+        st.markdown(f"**🎭 Rol:** {_html.escape(user_rol)}")
+        st.markdown(f"**📍 Zona:** {_html.escape(user_zona or '—')}")
         if is_proveedor_user:
             st.info("📊 Vista filtrada por tus productos")
         elif is_super_admin or is_admin:
-            st.success("🔑 Acceso completo")
-            st.markdown("---")
-
-            # ── Filtro por Proveedor ──────────────────────────
-            st.markdown("<div class='filter-label'>🔎 Proveedor</div>", unsafe_allow_html=True)
-            lista_prov = ["TODOS"] + sorted([
-                str(p) for p in df_v_all['Proveedor'].unique()
-                if str(p).strip() not in ('', 'nan', 'NAN')
-            ])
-            prov_sel = st.selectbox("", lista_prov, key="sb_prov", label_visibility="collapsed")
-
-            # ── Filtro por Vendedor ───────────────────────────
-            st.markdown("<div class='filter-label'>👤 Vendedor</div>", unsafe_allow_html=True)
-            lista_vend = ["TODOS"] + sorted([
-                str(v) for v in df_v_all['Vendedor'].unique()
-                if str(v).strip() not in ('', 'nan', 'NAN')
-            ])
-            vend_sel = st.selectbox("", lista_vend, key="sb_vend", label_visibility="collapsed")
-
-            # ── Filtro por Zona / Ciudad ──────────────────────
-            st.markdown("<div class='filter-label'>📍 Zona / Ciudad</div>", unsafe_allow_html=True)
-            lista_zona = ["TODAS"] + sorted([
-                str(z) for z in df_v_all['Ciudad'].unique()
-                if str(z).strip() not in ('', 'nan', 'NAN')
-            ])
-            zona_sel = st.selectbox("", lista_zona, key="sb_zona", label_visibility="collapsed")
-
+            st.success("🔑 Acceso completo a todos los datos")
         st.markdown("---")
         if st.button("🚪 Cerrar Sesión"):
             st.session_state.clear()
             st.rerun()
+
+    # ── Barra de filtros admin (área principal, siempre visible) ──
+    if is_super_admin or is_admin:
+        st.markdown("""
+        <div style="background:#1A1A1A;border:1px solid #2A2A2A;border-left:4px solid #00BCD4;
+             border-radius:10px;padding:14px 20px 6px;margin-bottom:18px;">
+          <div style="font-size:0.7rem;font-weight:800;color:#00BCD4;text-transform:uppercase;
+               letter-spacing:2px;margin-bottom:10px;">🔍 FILTROS DE ANÁLISIS</div>
+        """, unsafe_allow_html=True)
+
+        lista_prov = ["TODOS"] + sorted([
+            str(p) for p in df_v_all['Proveedor'].unique()
+            if str(p).strip() not in ('', 'nan', 'NAN')
+        ])
+        lista_vend = ["TODOS"] + sorted([
+            str(v) for v in df_v_all['Vendedor'].unique()
+            if str(v).strip() not in ('', 'nan', 'NAN')
+        ])
+        lista_zona = ["TODAS"] + sorted([
+            str(z) for z in df_v_all['Ciudad'].unique()
+            if str(z).strip() not in ('', 'nan', 'NAN')
+        ])
+
+        fc1, fc2, fc3 = st.columns(3)
+        with fc1:
+            prov_sel = st.selectbox("🔎 Proveedor", lista_prov, key="sb_prov")
+        with fc2:
+            vend_sel = st.selectbox("👤 Vendedor",  lista_vend, key="sb_vend")
+        with fc3:
+            zona_sel = st.selectbox("📍 Zona / Ciudad", lista_zona, key="sb_zona")
+
+        st.markdown("</div>", unsafe_allow_html=True)
 
     # LÓGICA DE FILTRADO
     if is_proveedor_user:
@@ -813,14 +819,29 @@ def dashboard_proveedores(df_v_all, df_p, df_i_all, usuario_row):
     fecha_dt = pd.to_datetime(df_final['Fecha'])
     df_final['Mes_N'] = fecha_dt.dt.strftime('%B %Y')
     meses = sorted(df_final['Mes_N'].unique().tolist(), reverse=True)
-    
-    col_mes, col_info = st.columns([1, 2])
-    with col_mes:
-        if meses: m_sel = st.selectbox("📅 Período:", meses)
+
+    if not meses:
+        st.warning("⚠️ Sin datos disponibles")
+        return
+
+    # Selector de período + badge de filtro activo
+    pm1, pm2 = st.columns([1, 3])
+    with pm1:
+        m_sel = st.selectbox("📅 Período:", meses)
+    with pm2:
+        if filtro_info != "📊 Vista Global de Administrador":
+            st.markdown(
+                f"<div style='background:#1A2A1A;border:1px solid #2E7D32;border-radius:8px;"
+                f"padding:10px 16px;margin-top:4px;font-size:0.82rem;color:#81C784;font-weight:600'>"
+                f"✅ Filtro activo: {_html.escape(filtro_info.replace('📊 ',''))}</div>",
+                unsafe_allow_html=True
+            )
         else:
-            st.warning("⚠️ Sin datos disponibles")
-            return
-    with col_info: st.info(filtro_info)
+            st.markdown(
+                "<div style='background:#141414;border:1px solid #2A2A2A;border-radius:8px;"
+                "padding:10px 16px;margin-top:4px;font-size:0.82rem;color:#607080'>📊 Sin filtros — vista global</div>",
+                unsafe_allow_html=True
+            )
 
     df_mes = df_final[df_final['Mes_N'] == m_sel].copy()
     if df_mes.empty:
