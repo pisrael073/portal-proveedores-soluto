@@ -1,6 +1,6 @@
 # ═══════════════════════════════════════════════════════════════════════════════
 #  PORTAL DE PROVEEDORES - SOLUTO
-#  Versión: 2.0 (Segura + Estética Mejorada)
+#  Versión: 3.0 (Corporativo + Filtros Admin)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 import streamlit as st
@@ -13,6 +13,7 @@ import calendar
 import re
 import unicodedata
 import hashlib
+import html as _html
 import logging
 from functools import lru_cache
 
@@ -35,320 +36,280 @@ logger = logging.getLogger(__name__)
 # ══════════════════════════════════════════════════════════════════
 
 CUSTOM_CSS = """
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&family=Syne:wght@700;800&family=JetBrains+Mono:wght@400;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
 
-* {
-    margin: 0;
-    padding: 0;
-    box-sizing: border-box;
-}
+* { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body, [class*="css"] {
-    font-family: 'Space Grotesk', sans-serif;
-    background: linear-gradient(135deg, #0A0F1E 0%, #0F1729 50%, #1A1F35 100%);
-    color: #E2E8F0;
-    letter-spacing: 0.5px;
+    font-family: 'Inter', sans-serif;
+    background: #06101E;
+    color: #E4ECF7;
+    letter-spacing: 0.3px;
 }
 
 header, footer, #MainMenu { visibility: hidden; }
 
 .block-container {
-    padding: 1.5rem 2rem !important;
+    padding: 1.2rem 2rem !important;
     max-width: 1400px !important;
 }
 
-/* TOP BAR CON GLASSMORPHISM */
+/* ── SIDEBAR ─────────────────────────────── */
+[data-testid="stSidebar"] {
+    background: #0A1829 !important;
+    border-right: 1px solid rgba(0, 168, 255, 0.15) !important;
+}
+[data-testid="stSidebar"] * { color: #C8D8EE !important; }
+[data-testid="stSidebar"] .stSelectbox label,
+[data-testid="stSidebar"] .stMarkdown p { color: #A0B4CC !important; font-size: 0.82rem !important; }
+[data-testid="stSidebar"] hr { border-color: rgba(0,168,255,0.15) !important; }
+
+/* ── TOP BAR ─────────────────────────────── */
 .top-bar {
-    background: rgba(15, 23, 41, 0.6);
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(30, 58, 138, 0.3);
-    border-radius: 16px;
-    padding: 18px 28px;
-    margin-bottom: 24px;
+    background: linear-gradient(135deg, #0C1E35 0%, #0F2545 100%);
+    border: 1px solid rgba(0, 168, 255, 0.25);
+    border-radius: 14px;
+    padding: 16px 28px;
+    margin-bottom: 22px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    animation: slideDown 0.5s ease-out;
+    box-shadow: 0 4px 24px rgba(0, 100, 200, 0.18);
+    animation: fadeIn 0.4s ease-out;
 }
 
-@keyframes slideDown {
-    from { opacity: 0; transform: translateY(-20px); }
-    to { opacity: 1; transform: translateY(0); }
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-10px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
 .top-bar-title {
-    font-family: 'Syne', sans-serif;
-    font-size: 1.4rem;
+    font-size: 1.3rem;
     font-weight: 800;
-    color: #F8FAFC;
+    color: #F0F8FF;
     display: flex;
     align-items: center;
-    gap: 12px;
-    letter-spacing: 1px;
+    gap: 10px;
+    letter-spacing: 0.5px;
+}
+
+.top-bar-accent {
+    color: #00A8FF;
 }
 
 .top-bar-user {
-    font-size: 0.8rem;
-    color: #93C5FD;
+    font-size: 0.82rem;
+    color: #90C4E8;
     font-weight: 600;
     text-align: right;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+    line-height: 1.7;
 }
 
 .top-bar-user-role {
-    font-size: 0.7rem;
-    color: #60A5FA;
-    opacity: 0.8;
+    font-size: 0.72rem;
+    color: #5BA8D4;
 }
 
-/* KPI CARDS CON HOVER */
+/* ── KPI CARDS ───────────────────────────── */
 .kpi-card {
-    background: linear-gradient(135deg, rgba(15, 23, 41, 0.8) 0%, rgba(26, 37, 64, 0.8) 100%);
-    border: 1px solid rgba(59, 130, 246, 0.2);
-    border-radius: 14px;
-    padding: 24px 20px;
+    background: linear-gradient(145deg, #0D1F36 0%, #112844 100%);
+    border: 1px solid rgba(0, 168, 255, 0.18);
+    border-top: 3px solid #00A8FF;
+    border-radius: 12px;
+    padding: 22px 18px;
     text-align: center;
     position: relative;
     overflow: hidden;
     margin-bottom: 12px;
-    backdrop-filter: blur(5px);
-    cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-}
-
-.kpi-card::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: -100%;
-    width: 100%;
-    height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
-    transition: left 0.5s ease;
+    transition: all 0.28s ease;
+    box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
 }
 
 .kpi-card:hover {
-    border-color: rgba(59, 130, 246, 0.5);
-    box-shadow: 0 12px 35px rgba(59, 130, 246, 0.15);
-    transform: translateY(-4px);
-}
-
-.kpi-card:hover::before {
-    left: 100%;
+    border-top-color: #FF6B35;
+    box-shadow: 0 8px 28px rgba(0, 168, 255, 0.14);
+    transform: translateY(-3px);
 }
 
 .kpi-val {
     font-family: 'JetBrains Mono', monospace;
-    font-size: 2.2rem;
-    font-weight: 800;
-    background: linear-gradient(135deg, #3B82F6, #60A5FA);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    font-size: 2rem;
+    font-weight: 700;
+    color: #00A8FF;
     line-height: 1;
     margin-bottom: 8px;
     letter-spacing: -1px;
 }
 
 .kpi-lbl {
-    font-size: 0.7rem;
-    color: #94A3B8;
+    font-size: 0.68rem;
+    color: #6A8FAF;
     text-transform: uppercase;
-    letter-spacing: 2px;
+    letter-spacing: 1.8px;
     font-weight: 700;
-    word-spacing: 2px;
 }
 
-/* BADGES */
+/* ── BADGES ──────────────────────────────── */
 .admin-badge {
-    background: linear-gradient(135deg, #7C3AED, #A855F7);
-    border: 1px solid rgba(168, 85, 247, 0.3);
-    border-radius: 8px;
-    padding: 4px 12px;
-    font-size: 0.65rem;
+    background: linear-gradient(135deg, #004E9A, #0077CC);
+    border: 1px solid rgba(0, 168, 255, 0.4);
+    border-radius: 6px;
+    padding: 3px 11px;
+    font-size: 0.62rem;
     font-weight: 800;
-    color: #F5F3FF;
+    color: #E0F2FF;
     text-transform: uppercase;
     letter-spacing: 1.5px;
     display: inline-block;
-    margin-left: 8px;
-    box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
-    animation: pulse 2s infinite;
+    margin-left: 10px;
+    box-shadow: 0 3px 10px rgba(0, 100, 200, 0.35);
+    animation: pulse 3s infinite;
 }
 
 .proveedor-badge {
-    background: linear-gradient(135deg, #F59E0B, #FBBF24);
-    border: 1px solid rgba(245, 158, 11, 0.3);
-    border-radius: 8px;
-    padding: 4px 12px;
-    font-size: 0.65rem;
+    background: linear-gradient(135deg, #7A3500, #FF6B35);
+    border: 1px solid rgba(255, 107, 53, 0.4);
+    border-radius: 6px;
+    padding: 3px 11px;
+    font-size: 0.62rem;
     font-weight: 800;
-    color: #78350F;
+    color: #FFF0EA;
     text-transform: uppercase;
     letter-spacing: 1.5px;
     display: inline-block;
-    margin-left: 8px;
-    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.2);
+    margin-left: 10px;
+    box-shadow: 0 3px 10px rgba(255, 107, 53, 0.3);
 }
 
 @keyframes pulse {
-    0%, 100% { opacity: 1; }
-    50% { opacity: 0.8; }
+    0%, 100% { opacity: 1; box-shadow: 0 3px 10px rgba(0,100,200,0.35); }
+    50%       { opacity: 0.85; box-shadow: 0 3px 16px rgba(0,168,255,0.55); }
 }
 
-/* SECTION TITLES */
+/* ── SECTION TITLES ──────────────────────── */
 .section-title {
-    font-family: 'Syne', sans-serif;
-    font-size: 1.05rem;
+    font-size: 0.92rem;
     font-weight: 800;
-    color: #CBD5E1;
-    margin: 28px 0 14px;
+    color: #90C4E8;
+    margin: 26px 0 14px;
     text-transform: uppercase;
-    letter-spacing: 1.5px;
+    letter-spacing: 2px;
     position: relative;
-    padding-bottom: 10px;
+    padding-bottom: 9px;
 }
 
 .section-title::after {
     content: '';
     position: absolute;
-    bottom: 0;
-    left: 0;
-    width: 60px;
-    height: 3px;
-    background: linear-gradient(90deg, #3B82F6, transparent);
+    bottom: 0; left: 0;
+    width: 48px; height: 2px;
+    background: linear-gradient(90deg, #00A8FF, #FF6B35, transparent);
     border-radius: 2px;
 }
 
-/* BOTONES */
-.stButton > button {
-    background: linear-gradient(135deg, #1E40AF, #3B82F6) !important;
-    color: white !important;
-    border: none !important;
-    border-radius: 10px !important;
-    font-weight: 700 !important;
-    padding: 12px 24px !important;
-    font-size: 0.95rem !important;
-    letter-spacing: 0.5px !important;
-    transition: all 0.3s ease !important;
-    box-shadow: 0 4px 15px rgba(59, 130, 246, 0.3) !important;
+/* ── FILTRO BOX ADMIN ────────────────────── */
+.filter-box {
+    background: rgba(0, 168, 255, 0.06);
+    border: 1px solid rgba(0, 168, 255, 0.18);
+    border-radius: 10px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+}
+
+.filter-label {
+    font-size: 0.7rem;
+    color: #5BA8D4;
     text-transform: uppercase;
+    letter-spacing: 1.5px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+
+/* ── BOTONES ─────────────────────────────── */
+.stButton > button {
+    background: linear-gradient(135deg, #004E9A, #0077CC) !important;
+    color: #E0F2FF !important;
+    border: 1px solid rgba(0, 168, 255, 0.3) !important;
+    border-radius: 9px !important;
+    font-weight: 700 !important;
+    padding: 11px 22px !important;
+    font-size: 0.9rem !important;
+    letter-spacing: 0.8px !important;
+    transition: all 0.25s ease !important;
+    text-transform: uppercase !important;
+    box-shadow: 0 4px 14px rgba(0, 120, 200, 0.3) !important;
 }
 
 .stButton > button:hover {
-    background: linear-gradient(135deg, #1E3A8A, #2563EB) !important;
-    box-shadow: 0 8px 25px rgba(59, 130, 246, 0.5) !important;
+    background: linear-gradient(135deg, #003A75, #005FA3) !important;
+    box-shadow: 0 6px 20px rgba(0, 168, 255, 0.45) !important;
     transform: translateY(-2px) !important;
 }
 
-/* TABS */
+/* ── TABS ────────────────────────────────── */
 .stTabs [data-baseweb="tab-list"] {
-    gap: 8px;
-    background: rgba(15, 23, 41, 0.4);
-    padding: 8px;
-    border-radius: 12px;
-    border: 1px solid rgba(30, 58, 138, 0.2);
+    gap: 6px;
+    background: rgba(10, 24, 41, 0.7);
+    padding: 7px;
+    border-radius: 11px;
+    border: 1px solid rgba(0, 168, 255, 0.15);
 }
 
 .stTabs [data-baseweb="tab"] {
     background: transparent;
-    border-radius: 8px;
-    color: #94A3B8;
+    border-radius: 7px;
+    color: #6A8FAF;
     font-weight: 600;
-    padding: 10px 20px;
-    transition: all 0.3s ease;
+    font-size: 0.87rem;
+    padding: 9px 18px;
+    transition: all 0.25s ease;
 }
 
 .stTabs [data-baseweb="tab"][aria-selected="true"] {
-    background: linear-gradient(135deg, #1E40AF, #3B82F6);
-    color: #FFFFFF;
-    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+    background: linear-gradient(135deg, #004E9A, #0077CC);
+    color: #E0F2FF;
+    box-shadow: 0 3px 10px rgba(0, 100, 200, 0.35);
 }
 
-/* DATAFRAME */
-.stDataFrame {
-    border-radius: 12px !important;
-    overflow: hidden !important;
-}
+/* ── DATAFRAME ───────────────────────────── */
+.stDataFrame { border-radius: 11px !important; overflow: hidden !important; }
+.stDataFrame tbody tr { border-bottom: 1px solid rgba(0, 100, 180, 0.18) !important; }
+.stDataFrame tbody tr:hover { background-color: rgba(0, 168, 255, 0.07) !important; }
 
-.stDataFrame tbody tr {
-    border-bottom: 1px solid rgba(30, 58, 138, 0.2) !important;
-    transition: background-color 0.2s ease !important;
-}
+/* ── ALERTS ──────────────────────────────── */
+.stAlert { border-radius: 10px !important; border-left: 4px solid !important; }
 
-.stDataFrame tbody tr:hover {
-    background-color: rgba(59, 130, 246, 0.1) !important;
-}
-
-/* ALERTS */
-.stAlert {
-    border-radius: 12px !important;
-    border-left: 4px solid !important;
-}
-
-.stSuccess {
-    background-color: rgba(16, 185, 129, 0.1) !important;
-    border-left-color: #10B981 !important;
-}
-
-.stWarning {
-    background-color: rgba(245, 158, 11, 0.1) !important;
-    border-left-color: #F59E0B !important;
-}
-
-.stError {
-    background-color: rgba(239, 68, 68, 0.1) !important;
-    border-left-color: #EF4444 !important;
-}
-
-.stInfo {
-    background-color: rgba(59, 130, 246, 0.1) !important;
-    border-left-color: #3B82F6 !important;
-}
-
-/* INPUTS */
-.stSelectbox, .stTextInput {
-    border-radius: 10px !important;
-}
-
+/* ── INPUTS ──────────────────────────────── */
 .stSelectbox [data-baseweb="select"] {
-    background: rgba(26, 37, 64, 0.6) !important;
-    border: 1px solid rgba(30, 58, 138, 0.3) !important;
+    background: rgba(10, 24, 41, 0.7) !important;
+    border: 1px solid rgba(0, 168, 255, 0.25) !important;
+    border-radius: 9px !important;
 }
 
-/* RANKING CARD */
+/* ── RANKING CARDS ───────────────────────── */
 .ranking-card {
-    background: linear-gradient(145deg, #111827, #1A2540);
-    border-left: 5px solid;
-    border-radius: 8px;
-    padding: 15px 20px;
-    margin-bottom: 10px;
+    background: linear-gradient(145deg, #0A1829, #0F2240);
+    border-left: 4px solid;
+    border-radius: 9px;
+    padding: 14px 20px;
+    margin-bottom: 9px;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
-    transition: all 0.3s ease;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+    transition: all 0.25s ease;
 }
 
 .ranking-card:hover {
     transform: translateX(4px);
-    box-shadow: 0 6px 12px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 4px 14px rgba(0, 100, 200, 0.25);
 }
 
-/* RESPONSIVE */
+/* ── RESPONSIVE ──────────────────────────── */
 @media (max-width: 768px) {
-    .top-bar {
-        flex-direction: column;
-        gap: 12px;
-        text-align: center;
-    }
-    
-    .kpi-val { font-size: 1.6rem; }
-    .section-title { font-size: 0.9rem; }
+    .top-bar { flex-direction: column; gap: 10px; text-align: center; }
+    .kpi-val  { font-size: 1.5rem; }
+    .section-title { font-size: 0.82rem; }
 }
 """
 
@@ -740,10 +701,7 @@ def pantalla_login():
                 return
 
             u = fila.iloc[0]
-            try:
-                pin_correcto = str(int(float(u['_pin'])))
-            except Exception:
-                pin_correcto = str(u['_pin'])
+            pin_correcto = str(u['_pin']).strip()
 
             if pin_inp.strip() != pin_correcto:
                 st.error("🔒 PIN incorrecto.")
@@ -801,28 +759,53 @@ def dashboard_proveedores(df_v_all, df_p, df_i_all, usuario_row):
         
     st.markdown(
         f"<div class='top-bar'>"
-        f"<div><span class='top-bar-title'>🏢 Portal Proveedores</span>{admin_badge}</div>"
+        f"<div><span class='top-bar-title'>🏢 Portal <span class='top-bar-accent'>Proveedores</span> · SOLUTO</span>{admin_badge}</div>"
         f"<div>"
-        f"<div class='top-bar-user'>👤 {user_nombre}</div>"
-        f"<div class='top-bar-user-role'>🎭 {user_rol}</div>"
+        f"<div class='top-bar-user'>👤 {_html.escape(user_nombre)}</div>"
+        f"<div class='top-bar-user-role'>🎭 {_html.escape(user_rol)}</div>"
         f"</div>"
         f"</div>", unsafe_allow_html=True)
 
-    prov_sel = "TODOS"
-    
+    prov_sel  = "TODOS"
+    vend_sel  = "TODOS"
+    zona_sel  = "TODAS"
+
     with st.sidebar:
         st.markdown(f"**👤 {user_nombre}**")
         st.markdown(f"**🎭 Rol:** {user_rol}")
         st.markdown(f"**📍 Zona:** {user_zona or '—'}")
-        
-        if is_proveedor_user: 
+
+        if is_proveedor_user:
             st.info("📊 Vista filtrada por tus productos")
-        elif is_super_admin or is_admin: 
+        elif is_super_admin or is_admin:
             st.success("🔑 Acceso completo")
             st.markdown("---")
-            lista_prov = ["TODOS"] + sorted([str(p) for p in df_v_all['Proveedor'].unique() if str(p).strip() != '' and str(p).upper() != 'NAN'])
-            prov_sel = st.selectbox("🔎 Auditar Proveedor:", lista_prov)
-        
+
+            # ── Filtro por Proveedor ──────────────────────────
+            st.markdown("<div class='filter-label'>🔎 Proveedor</div>", unsafe_allow_html=True)
+            lista_prov = ["TODOS"] + sorted([
+                str(p) for p in df_v_all['Proveedor'].unique()
+                if str(p).strip() not in ('', 'nan', 'NAN')
+            ])
+            prov_sel = st.selectbox("", lista_prov, key="sb_prov", label_visibility="collapsed")
+
+            # ── Filtro por Vendedor ───────────────────────────
+            st.markdown("<div class='filter-label'>👤 Vendedor</div>", unsafe_allow_html=True)
+            lista_vend = ["TODOS"] + sorted([
+                str(v) for v in df_v_all['Vendedor'].unique()
+                if str(v).strip() not in ('', 'nan', 'NAN')
+            ])
+            vend_sel = st.selectbox("", lista_vend, key="sb_vend", label_visibility="collapsed")
+
+            # ── Filtro por Zona / Ciudad ──────────────────────
+            st.markdown("<div class='filter-label'>📍 Zona / Ciudad</div>", unsafe_allow_html=True)
+            lista_zona = ["TODAS"] + sorted([
+                str(z) for z in df_v_all['Ciudad'].unique()
+                if str(z).strip() not in ('', 'nan', 'NAN')
+            ])
+            zona_sel = st.selectbox("", lista_zona, key="sb_zona", label_visibility="collapsed")
+
+        st.markdown("---")
         if st.button("🚪 Cerrar Sesión"):
             st.session_state.clear()
             st.rerun()
@@ -833,17 +816,29 @@ def dashboard_proveedores(df_v_all, df_p, df_i_all, usuario_row):
         df_inv_final = filtrar_datos_proveedor(df_i_all, usuario_row) if not df_i_all.empty else df_i_all
         filtro_info = f"📊 Vista filtrada para {user_rol}"
     else:
+        df_final = df_v_all.copy()
+        df_inv_final = df_i_all.copy()
+
+        # Filtro por proveedor
         if prov_sel != "TODOS":
-            df_final = df_v_all[df_v_all['Proveedor'] == prov_sel].copy()
-            if not df_i_all.empty and 'Proveedor' in df_i_all.columns:
-                df_inv_final = df_i_all[df_i_all['Proveedor'] == prov_sel].copy()
-            else:
-                df_inv_final = df_i_all.copy()
-            filtro_info = f"📊 Modo Auditoría: Proveedor {prov_sel}"
-        else:
-            df_final = df_v_all.copy()
-            df_inv_final = df_i_all.copy()
-            filtro_info = "📊 Vista Global de Administrador"
+            df_final = df_final[df_final['Proveedor'] == prov_sel].copy()
+            if not df_inv_final.empty and 'Proveedor' in df_inv_final.columns:
+                df_inv_final = df_inv_final[df_inv_final['Proveedor'] == prov_sel].copy()
+
+        # Filtro por vendedor
+        if vend_sel != "TODOS" and 'Vendedor' in df_final.columns:
+            df_final = df_final[df_final['Vendedor'] == vend_sel].copy()
+
+        # Filtro por zona / ciudad
+        if zona_sel != "TODAS" and 'Ciudad' in df_final.columns:
+            df_final = df_final[df_final['Ciudad'] == zona_sel].copy()
+
+        # Descripción del filtro activo
+        partes = []
+        if prov_sel  != "TODOS":  partes.append(f"Proveedor: {prov_sel}")
+        if vend_sel  != "TODOS":  partes.append(f"Vendedor: {vend_sel}")
+        if zona_sel  != "TODAS":  partes.append(f"Zona: {zona_sel}")
+        filtro_info = "📊 " + " · ".join(partes) if partes else "📊 Vista Global de Administrador"
 
     if df_final.empty:
         st.warning("⚠️ No se encontraron datos para este usuario o zona.")
@@ -975,25 +970,26 @@ def dashboard_proveedores(df_v_all, df_p, df_i_all, usuario_row):
                     medalla = f"#{index + 1}"
                     color_borde = "#1E3A8A"
                 
-                nombre_limpio = vendedor.split(' - ')[1] if ' - ' in vendedor else vendedor
-                
+                nombre_limpio = _html.escape(vendedor.split(' - ')[1] if ' - ' in vendedor else vendedor)
+
                 st.markdown(f"""
                 <div style="
-                    background: linear-gradient(145deg, #111827, #1A2540);
-                    border-left: 5px solid {color_borde};
-                    border-radius: 8px;
-                    padding: 15px 20px;
-                    margin-bottom: 10px;
+                    background: linear-gradient(145deg, #0A1829, #0F2240);
+                    border-left: 4px solid {color_borde};
+                    border-radius: 9px;
+                    padding: 14px 20px;
+                    margin-bottom: 9px;
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
-                    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+                    transition: transform 0.2s ease;
                 ">
-                    <div style="display: flex; align-items: center; gap: 15px;">
-                        <span style="font-size: 1.5rem; font-weight: bold; width: 30px; text-align: center; color: {color_borde};">{medalla}</span>
-                        <span style="font-size: 1.1rem; font-weight: 600; color: #E2E8F0; text-transform: uppercase;">{nombre_limpio}</span>
+                    <div style="display: flex; align-items: center; gap: 14px;">
+                        <span style="font-size: 1.4rem; font-weight: bold; width: 28px; text-align: center; color: {color_borde};">{medalla}</span>
+                        <span style="font-size: 1rem; font-weight: 700; color: #D0E8FF; text-transform: uppercase; letter-spacing: 0.5px;">{nombre_limpio}</span>
                     </div>
-                    <div style="font-size: 1.3rem; font-weight: 800; color: #3B82F6;">
+                    <div style="font-size: 1.2rem; font-weight: 800; color: #00A8FF; font-family: 'JetBrains Mono', monospace;">
                         ${total:,.2f}
                     </div>
                 </div>
